@@ -20,7 +20,7 @@ export async function handleCallback(ctx) {
     // If already onboarded, just switch mode (no date re-collection)
     const user = await getUser(userId);
     if (user && user.onboarding === 'done') {
-      await upsertUser(userId, { mode });
+      await upsertUser(userId, { mode, chat_id: ctx.chat.id });
       await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
       const label = { prepare: '🌱 Prepare', recover: '🌿 Recover', tumbuh: '🌸 Tumbuh' }[mode];
       await ctx.answerCbQuery(`Switched to ${label}`);

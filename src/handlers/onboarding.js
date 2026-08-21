@@ -37,7 +37,12 @@ export async function handleOnboarding(ctx, step) {
     if (!parsed) {
       return ctx.reply('I couldn\'t read that date — please send it as DD/MM/YYYY (e.g. 15/11/2025)');
     }
-    await upsertUser(userId, { due_date: parsed, onboarding: 'done' });
+    await upsertUser(userId, {
+      chat_id:    ctx.chat.id,
+      name:       ctx.from.first_name || 'Friend',
+      due_date:   parsed,
+      onboarding: 'done',
+    });
     return ctx.reply(
       `✅ Got it! I'll send you your weekly birth preparation plan every morning at 8am.\n\nSend me a message any time to log what you've done, or use /today to see today's tasks.`,
       { parse_mode: 'Markdown' }
@@ -50,7 +55,12 @@ export async function handleOnboarding(ctx, step) {
     if (!parsed) {
       return ctx.reply('Please send the date as DD/MM/YYYY (e.g. 03/08/2025)');
     }
-    await upsertUser(userId, { baby_dob: parsed, onboarding: 'done' });
+    await upsertUser(userId, {
+      chat_id:    ctx.chat.id,
+      name:       ctx.from.first_name || 'Friend',
+      baby_dob:   parsed,
+      onboarding: 'done',
+    });
     return ctx.reply(
       `✅ Wonderful! I'll send your daily plan at 8am every morning.\n\nJust message me what you've done and I'll update your record automatically.\n\nTap /today to see today's tasks right now 🌿`,
       { parse_mode: 'Markdown' }
