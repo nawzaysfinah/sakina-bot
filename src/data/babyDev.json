@@ -1,0 +1,331 @@
+[
+  {
+    "id": "newborn",
+    "label": "Newborn",
+    "sublabel": "Weeks 1–4",
+    "weeks": [
+      {
+        "id": "w1",
+        "label": "Week 1",
+        "theme": "Safe arrival & bonding",
+        "motor": [
+          { "id": "w1-m1", "text": "Tummy time on your chest — 1–2 min skin-to-skin, 2–3× daily" },
+          { "id": "w1-m2", "text": "Gentle limb cycling — move legs slowly like a bicycle, 10 reps" }
+        ],
+        "social": [
+          { "id": "w1-s1", "text": "Hold baby within 20–30 cm of your face and make gentle eye contact" },
+          { "id": "w1-s2", "text": "Talk softly to baby during every feed and nappy change" }
+        ],
+        "cognitive": [
+          { "id": "w1-c1", "text": "Play a soft lullaby or Quranic recitation — 5–10 min" },
+          { "id": "w1-c2", "text": "Show a high-contrast black-and-white card for 1 min" }
+        ],
+        "watch": [
+          "Baby startles at loud sounds (Moro reflex)",
+          "Baby turns head toward a sound source",
+          "Baby's gaze follows your face briefly"
+        ]
+      },
+      {
+        "id": "w2-3",
+        "label": "Weeks 2–3",
+        "theme": "First smiles & senses",
+        "motor": [
+          { "id": "w23-m1", "text": "Tummy time on a firm surface — 3–5 min, 3× daily" },
+          { "id": "w23-m2", "text": "Gentle neck stretches — support head and tilt slowly side to side" }
+        ],
+        "social": [
+          { "id": "w23-s1", "text": "Mirror baby's expressions — stick out your tongue and wait for imitation" },
+          { "id": "w23-s2", "text": "Narrate your day aloud while caring for baby" }
+        ],
+        "cognitive": [
+          { "id": "w23-c1", "text": "Slowly move a high-contrast toy across baby's field of vision — tracking practice" },
+          { "id": "w23-c2", "text": "Introduce a different texture to baby's palm (soft cloth, smooth rubber)" }
+        ],
+        "watch": [
+          "First social smile (reflex smile from gas is earlier — social smile is directed at you)",
+          "Baby tracks a moving object 45–90 degrees",
+          "Baby lifts chin briefly during tummy time"
+        ]
+      },
+      {
+        "id": "w4",
+        "label": "Week 4",
+        "theme": "Alertness windows open",
+        "motor": [
+          { "id": "w4-m1", "text": "Tummy time 5–10 min, 3–4× daily — build up gradually" },
+          { "id": "w4-m2", "text": "Supported sitting briefly in your lap — let baby feel upright weight" }
+        ],
+        "social": [
+          { "id": "w4-s1", "text": "Respond to every coo with a coo back — the first 'conversation'" },
+          { "id": "w4-s2", "text": "Kangaroo care 1 hour — skin-to-skin regulates temperature and heart rate" }
+        ],
+        "cognitive": [
+          { "id": "w4-c1", "text": "Hang a simple mobile above baby — 30–40 cm away, high contrast" },
+          { "id": "w4-c2", "text": "Read a board book aloud — voice rhythm matters more than meaning" }
+        ],
+        "watch": [
+          "Baby holds eye contact for 5–10 seconds",
+          "Baby lifts head 45° during tummy time",
+          "Baby's hands open and close less reflexively"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "alerting",
+    "label": "Alerting",
+    "sublabel": "Weeks 5–8",
+    "weeks": [
+      {
+        "id": "w5-6",
+        "label": "Weeks 5–6",
+        "theme": "Social smiles & voice recognition",
+        "motor": [
+          { "id": "w56-m1", "text": "Tummy time target: 15–20 min total spread across the day" },
+          { "id": "w56-m2", "text": "Baby sit-ups: hold baby's hands and gently pull to sitting (head may lag — support it)" }
+        ],
+        "social": [
+          { "id": "w56-s1", "text": "Smile and wait — let baby initiate a smile back (social reciprocity)" },
+          { "id": "w56-s2", "text": "Sing the same 2–3 songs every day — repetition builds expectation and security" }
+        ],
+        "cognitive": [
+          { "id": "w56-c1", "text": "Track a slow-moving rattle — horizontal and then vertical arcs" },
+          { "id": "w56-c2", "text": "Introduce cause-and-effect: squeeze a squeaky toy so baby hears the result" }
+        ],
+        "watch": [
+          "Consistent social smiling when you make eye contact",
+          "Baby vocalises in response to your voice (cooing)",
+          "Head lags are reduced — baby tries to hold head up"
+        ]
+      },
+      {
+        "id": "w7-8",
+        "label": "Weeks 7–8",
+        "theme": "Laughing & grasping",
+        "motor": [
+          { "id": "w78-m1", "text": "Offer a finger to grasp during alert time — strengthens palmar grasp" },
+          { "id": "w78-m2", "text": "Tummy time on a rolled towel under chest — elevates head and chest for easier lift" }
+        ],
+        "social": [
+          { "id": "w78-s1", "text": "Gentle tickle around ribs — first giggles often appear this week" },
+          { "id": "w78-s2", "text": "Peek-a-boo with a soft cloth — object permanence seeds begin" }
+        ],
+        "cognitive": [
+          { "id": "w78-c1", "text": "Show baby their reflection in a baby-safe mirror — fascination is normal" },
+          { "id": "w78-c2", "text": "Vary your voice tone and speed when speaking — baby learns prosody" }
+        ],
+        "watch": [
+          "First laugh or giggle",
+          "Baby bats at a hanging toy intentionally",
+          "Head control: baby holds head steady at 90° for several seconds"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "emerging",
+    "label": "Emerging",
+    "sublabel": "Weeks 9–12",
+    "weeks": [
+      {
+        "id": "w9-10",
+        "label": "Weeks 9–10",
+        "theme": "Hands discover the world",
+        "motor": [
+          { "id": "w910-m1", "text": "Batting gym: hang toys at chest height so baby can swat with both arms" },
+          { "id": "w910-m2", "text": "Supported tummy time — mini push-ups: chest lifts off surface using arms" }
+        ],
+        "social": [
+          { "id": "w910-s1", "text": "Hold baby facing outward — let them watch household activity for 10 min" },
+          { "id": "w910-s2", "text": "Name emotions as they happen: 'You're happy!' 'That scared you — it's okay'" }
+        ],
+        "cognitive": [
+          { "id": "w910-c1", "text": "Put a soft rattle in baby's hand and let them shake it — cause and effect" },
+          { "id": "w910-c2", "text": "Read with your finger tracing under text — eye-tracking practice" }
+        ],
+        "watch": [
+          "Baby brings hands together at midline",
+          "Baby reaches for objects intentionally (not just reflex grasp)",
+          "Baby shows clear preference for familiar voices and faces"
+        ]
+      },
+      {
+        "id": "w11-12",
+        "label": "Weeks 11–12",
+        "theme": "Rolling begins",
+        "motor": [
+          { "id": "w1112-m1", "text": "Encourage side-lying: roll baby gently to their side, see if they roll to back" },
+          { "id": "w1112-m2", "text": "Supported standing: hold baby under armpits and let feet push on a firm surface" }
+        ],
+        "social": [
+          { "id": "w1112-s1", "text": "Introduce baby to 1 new person or face (outside family) — social widening" },
+          { "id": "w1112-s2", "text": "Play copycat: make a mouth shape, wait, see if baby copies" }
+        ],
+        "cognitive": [
+          { "id": "w1112-c1", "text": "Let baby feel 3 different textures today: smooth, rough, soft" },
+          { "id": "w1112-c2", "text": "Name everything you hand to baby — label the world constantly" }
+        ],
+        "watch": [
+          "Baby rolls from back to side (full rolls come by 4–5 months)",
+          "Drooling increases — teething prep, not actual teeth yet",
+          "Baby quiets to a familiar song or voice"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "discovering",
+    "label": "Discovering",
+    "sublabel": "Months 4–6",
+    "weeks": [
+      {
+        "id": "m4",
+        "label": "Months 4–5",
+        "theme": "Sitting & solid food prep",
+        "motor": [
+          { "id": "m4-m1", "text": "Practice supported sitting in a pillow ring or on your lap — 5–10 min" },
+          { "id": "m4-m2", "text": "Encourage rolling by placing toys just out of reach on each side" },
+          { "id": "m4-m3", "text": "Standing pressure: hold baby standing, let them bounce on your lap" }
+        ],
+        "social": [
+          { "id": "m4-s1", "text": "Serve and return conversation: wait for baby's vocalisation, respond, wait again" },
+          { "id": "m4-s2", "text": "Introduce simple sign language: 'milk', 'more', 'all done'" }
+        ],
+        "cognitive": [
+          { "id": "m4-c1", "text": "Bring baby to the kitchen during cooking — narrate smells, sounds, actions" },
+          { "id": "m4-c2", "text": "Stack 2 blocks in front of baby and knock them down — show cause and effect" }
+        ],
+        "watch": [
+          "Baby rolls front-to-back and back-to-front",
+          "Baby explores objects by mouthing them",
+          "Babbling begins (ba, ma, da sounds)"
+        ]
+      },
+      {
+        "id": "m5-6",
+        "label": "Month 6",
+        "theme": "First foods & sitting alone",
+        "motor": [
+          { "id": "m56-m1", "text": "Practice tripod sitting (baby uses both hands in front for balance)" },
+          { "id": "m56-m2", "text": "Introduce spoon feeding or baby-led weaning — whichever you have chosen" }
+        ],
+        "social": [
+          { "id": "m56-s1", "text": "Let baby play in front of a large mirror — recognising self begins" },
+          { "id": "m56-s2", "text": "Narrate emotions visibly: exaggerated surprise, joy, concern — baby reads your face" }
+        ],
+        "cognitive": [
+          { "id": "m56-c1", "text": "Introduce object permanence: hide a toy under a cloth while baby watches" },
+          { "id": "m56-c2", "text": "Read 3 different board books today — variety builds vocabulary" }
+        ],
+        "watch": [
+          "Sits unsupported briefly (6 months milestone)",
+          "Transfers objects from hand to hand",
+          "Stranger anxiety may begin — normal and healthy"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "exploring",
+    "label": "Exploring",
+    "sublabel": "Months 7–9",
+    "weeks": [
+      {
+        "id": "m7-8",
+        "label": "Months 7–8",
+        "theme": "Crawling & pincer grip",
+        "motor": [
+          { "id": "m78-m1", "text": "Crawling prep: rocking on all-fours, then shift weight forward and back" },
+          { "id": "m78-m2", "text": "Pincer practice: offer small puffs or soft bits for them to pick up with 2 fingers" }
+        ],
+        "social": [
+          { "id": "m78-s1", "text": "Play turn-taking games: roll a ball back and forth" },
+          { "id": "m78-s2", "text": "Point to objects and name them — joint attention builds vocabulary" }
+        ],
+        "cognitive": [
+          { "id": "m78-c1", "text": "Let baby bang two objects together — rhythm and cause-and-effect" },
+          { "id": "m78-c2", "text": "Peek-a-boo with full hide: disappear behind a door and reappear — object permanence" }
+        ],
+        "watch": [
+          "Army crawl or full hands-and-knees crawl",
+          "Pulls to standing using furniture",
+          "Says 'mama' or 'dada' without specific meaning"
+        ]
+      },
+      {
+        "id": "m9",
+        "label": "Month 9",
+        "theme": "Cruising & first words",
+        "motor": [
+          { "id": "m9-m1", "text": "Cruising practice: walk along the sofa edge holding baby's hand as they step" },
+          { "id": "m9-m2", "text": "Stair climbing: supervised crawl up 2–3 steps and back down" }
+        ],
+        "social": [
+          { "id": "m9-s1", "text": "Read a book with pointing: 'Where is the dog?' — wait for baby to point or look" },
+          { "id": "m9-s2", "text": "Celebrate every attempt at a new word or sound effusively" }
+        ],
+        "cognitive": [
+          { "id": "m9-c1", "text": "Simple shape sorting — even if baby just mouths the shapes, that is learning" },
+          { "id": "m9-c2", "text": "Introduce nesting cups — in/out, bigger/smaller concepts begin" }
+        ],
+        "watch": [
+          "Waves bye-bye on request",
+          "Points to indicate interest (proto-declarative pointing)",
+          "Uses 1–2 words with consistent meaning"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "onthemove",
+    "label": "On the Move",
+    "sublabel": "Months 10–12",
+    "weeks": [
+      {
+        "id": "m10-11",
+        "label": "Months 10–11",
+        "theme": "Walking & talking",
+        "motor": [
+          { "id": "m1011-m1", "text": "Push-toy walking: let baby push a stable trolley or laundry basket across the room" },
+          { "id": "m1011-m2", "text": "Throwing practice: sit across from baby and roll a ball, encourage them to throw back" }
+        ],
+        "social": [
+          { "id": "m1011-s1", "text": "Pretend play: feed a doll, drive a toy car — baby starts imitating domestic acts" },
+          { "id": "m1011-s2", "text": "Follow the child's lead — let them choose the activity for 10 minutes" }
+        ],
+        "cognitive": [
+          { "id": "m1011-c1", "text": "Simple puzzles: 2–3 piece knob puzzles" },
+          { "id": "m1011-c2", "text": "Name body parts on a doll or on baby themselves: 'Where is your nose?'" }
+        ],
+        "watch": [
+          "Takes first independent steps (typically 9–12 months)",
+          "Says 2–3 words with meaning",
+          "Follows simple 1-step instructions ('give me the ball')"
+        ]
+      },
+      {
+        "id": "m12",
+        "label": "Month 12",
+        "theme": "First birthday & independence",
+        "motor": [
+          { "id": "m12-m1", "text": "Walking practice: encourage walking to you across the room" },
+          { "id": "m12-m2", "text": "Climbing: supervised climbing onto a low sofa cushion placed on the floor" }
+        ],
+        "social": [
+          { "id": "m12-s1", "text": "Playdate with another child — parallel play (not interactive yet) is normal and healthy" },
+          { "id": "m12-s2", "text": "Celebrate their first birthday with presence, not presents — they want you, not stuff" }
+        ],
+        "cognitive": [
+          { "id": "m12-c1", "text": "Let baby 'help' with tasks: handing you things, pressing the elevator button" },
+          { "id": "m12-c2", "text": "Ask 'where is ___?' for 5 different familiar objects — vocabulary comprehension check" }
+        ],
+        "watch": [
+          "10+ words (some babies have more, some fewer — comprehension matters more than output at 12m)",
+          "Points and looks at you to share interest (joint attention)",
+          "Plays pretend (feeds a doll, holds phone to ear)"
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,128 @@
+[
+  {
+    "week": 32,
+    "theme": "Setting the Foundation",
+    "weekendTasks": [
+      { "id": "w32-wk1", "text": "Research and choose a doula or birth partner if you want one" },
+      { "id": "w32-wk2", "text": "Tour the hospital labour ward — know the check-in process, parking, and ward layout" },
+      { "id": "w32-wk3", "text": "Start a hospital bag checklist — don't pack yet, just list" }
+    ],
+    "dailyHabits": [
+      { "id": "w32-d1", "text": "Practise diaphragmatic breathing 5 min — foundation for labour breathing" },
+      { "id": "w32-d2", "text": "Pelvic floor exercises (Kegel) — 3 sets of 10 slow holds" },
+      { "id": "w32-d3", "text": "Walk 20–30 min — keeps baby in optimal position" }
+    ]
+  },
+  {
+    "week": 33,
+    "theme": "Birth Education",
+    "weekendTasks": [
+      { "id": "w33-wk1", "text": "Attend a birth preparation class or watch a recommended birth video series" },
+      { "id": "w33-wk2", "text": "Research pain management options: epidural, gas & air, water birth, TENS" },
+      { "id": "w33-wk3", "text": "Discuss birth preferences with your partner — know each other's non-negotiables" }
+    ],
+    "dailyHabits": [
+      { "id": "w33-d1", "text": "Practise slow breathing: inhale 4 counts, exhale 8 counts — 10 rounds" },
+      { "id": "w33-d2", "text": "Pelvic floor exercises (Kegel) — 3 sets" },
+      { "id": "w33-d3", "text": "Perineal massage — 5 min with coconut or almond oil" }
+    ]
+  },
+  {
+    "week": 34,
+    "theme": "Birth Plan Draft",
+    "weekendTasks": [
+      { "id": "w34-wk1", "text": "Write your birth plan (1 page): preferences for labour, pain relief, third stage, skin-to-skin" },
+      { "id": "w34-wk2", "text": "Review birth plan with your OB or midwife — get their sign-off" },
+      { "id": "w34-wk3", "text": "Prepare a contact list: hospital number, OB/midwife, doula, back-up support person" }
+    ],
+    "dailyHabits": [
+      { "id": "w34-d1", "text": "Practise breathing through a 60-second simulated contraction — partner times you" },
+      { "id": "w34-d2", "text": "Perineal massage — 5 min" },
+      { "id": "w34-d3", "text": "Left lateral lying for 30 min during rest — optimal for blood flow to baby" }
+    ]
+  },
+  {
+    "week": 35,
+    "theme": "Nourishment & Natural Prep",
+    "weekendTasks": [
+      { "id": "w35-wk1", "text": "Start eating 6 Medjool dates daily — RCT evidence shows shorter labour & less induction need" },
+      { "id": "w35-wk2", "text": "Make or buy colostrum collection syringes (if advised by midwife)" },
+      { "id": "w35-wk3", "text": "Attend breastfeeding class or watch a lactation consultant video series" }
+    ],
+    "dailyHabits": [
+      { "id": "w35-d1", "text": "Eat 6 dates — morning is fine, with breakfast" },
+      { "id": "w35-d2", "text": "Raspberry leaf tea 1 cup (check with OB first — tones uterus)" },
+      { "id": "w35-d3", "text": "Perineal massage — 5 min" }
+    ]
+  },
+  {
+    "week": 36,
+    "theme": "Practical Readiness",
+    "weekendTasks": [
+      { "id": "w36-wk1", "text": "Pack your hospital bag: mum bag + baby bag + partner bag" },
+      { "id": "w36-wk2", "text": "Install car seat and practise buckling (hospital won't discharge without one)" },
+      { "id": "w36-wk3", "text": "Prepare freezer meals: 10–15 portions for the first 2 weeks postpartum" }
+    ],
+    "dailyHabits": [
+      { "id": "w36-d1", "text": "6 dates daily" },
+      { "id": "w36-d2", "text": "Practice labour position changes: all-fours, supported squat, side-lying" },
+      { "id": "w36-d3", "text": "Perineal massage — 5 min" }
+    ]
+  },
+  {
+    "week": 37,
+    "theme": "Home & Support Setup",
+    "weekendTasks": [
+      { "id": "w37-wk1", "text": "Set up the nursery or baby sleeping area — bassinet, linen, nightlight" },
+      { "id": "w37-wk2", "text": "Confirm confinement lady or postpartum support — lock in dates and expectations" },
+      { "id": "w37-wk3", "text": "Do a 'hospital run drill': time the drive, test the route at different hours" }
+    ],
+    "dailyHabits": [
+      { "id": "w37-d1", "text": "6 dates daily" },
+      { "id": "w37-d2", "text": "10-minute hypnobirthing or guided relaxation audio" },
+      { "id": "w37-d3", "text": "Perineal massage — 5 min" }
+    ]
+  },
+  {
+    "week": 38,
+    "theme": "Mental & Emotional Prep",
+    "weekendTasks": [
+      { "id": "w38-wk1", "text": "Write a letter to yourself about your hopes and fears for labour — don't edit, just write" },
+      { "id": "w38-wk2", "text": "Do a full body check of hospital bag — nothing missing?" },
+      { "id": "w38-wk3", "text": "Deep clean and organise home — your nest instinct is right, act on it" }
+    ],
+    "dailyHabits": [
+      { "id": "w38-d1", "text": "6 dates daily" },
+      { "id": "w38-d2", "text": "10-min guided relaxation or visualisation of a calm, positive birth" },
+      { "id": "w38-d3", "text": "Gentle prenatal yoga — hip openers and squats" }
+    ]
+  },
+  {
+    "week": 39,
+    "theme": "Final Countdown",
+    "weekendTasks": [
+      { "id": "w39-wk1", "text": "Review early labour signs: mucus plug, Braxton Hicks vs real contractions, waters breaking" },
+      { "id": "w39-wk2", "text": "Make sure phone is backed up, charged nightly, and birth partner has all contacts" },
+      { "id": "w39-wk3", "text": "Cook or freeze your last batch of meals if not done yet" }
+    ],
+    "dailyHabits": [
+      { "id": "w39-d1", "text": "6 dates daily" },
+      { "id": "w39-d2", "text": "Raspberry leaf tea 1–2 cups" },
+      { "id": "w39-d3", "text": "10-min relaxation — visualise meeting your baby" }
+    ]
+  },
+  {
+    "week": 40,
+    "theme": "You Are Ready",
+    "weekendTasks": [
+      { "id": "w40-wk1", "text": "Confirm induction/OB appointment if going past 40 weeks" },
+      { "id": "w40-wk2", "text": "Rest. Seriously — sleep, rest, sleep some more" },
+      { "id": "w40-wk3", "text": "Do something purely for yourself: a massage, a movie, a long bath" }
+    ],
+    "dailyHabits": [
+      { "id": "w40-d1", "text": "6 dates daily" },
+      { "id": "w40-d2", "text": "Slow walks — baby's head position benefits from upright movement" },
+      { "id": "w40-d3", "text": "Tell yourself: my body knows what to do 🌿" }
+    ]
+  }
+]
