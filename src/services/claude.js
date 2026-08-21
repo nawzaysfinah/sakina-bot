@@ -3,7 +3,7 @@
  * Free tier: 1,500 requests/day on gemini-1.5-flash.
  */
 
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent`;
 
 async function callGemini(systemPrompt, userPrompt) {
   const url = `${GEMINI_URL}?key=${process.env.GEMINI_API_KEY}`;
