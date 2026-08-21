@@ -12,6 +12,7 @@ import { Telegraf } from 'telegraf';
 import { message }  from 'telegraf/filters';
 import { handleMessage }  from './handlers/message.js';
 import { handleCallback } from './handlers/callbacks.js';
+import { handleAbout, handleWeek, handleTip, handleReset } from './handlers/commands.js';
 import { initScheduler }  from './scheduler.js';
 import http from 'http';
 
@@ -38,6 +39,10 @@ bot.help(ctx  => handleMessage(ctx));
 bot.command('today',    ctx => handleMessage(ctx));
 bot.command('progress', ctx => handleMessage(ctx));
 bot.command('switch',   ctx => handleMessage(ctx));
+bot.command('about',    ctx => handleAbout(ctx));
+bot.command('week',     ctx => handleWeek(ctx));
+bot.command('tip',      ctx => handleTip(ctx));
+bot.command('reset',    ctx => handleReset(ctx));
 
 // ── Text messages ──────────────────────────────────────────────────────────────
 
@@ -50,11 +55,14 @@ bot.on('callback_query', ctx => handleCallback(ctx));
 // ── Register command menu (shown in Telegram's "/" menu) ───────────────────────
 
 bot.telegram.setMyCommands([
-  { command: 'start',    description: 'Start or restart Sakina' },
-  { command: 'today',    description: "See today's tasks" },
-  { command: 'progress', description: 'See your completion count' },
-  { command: 'switch',   description: 'Switch mode (Prepare / Recover / Tumbuh)' },
-  { command: 'help',     description: 'Show help' },
+  { command: 'today',    description: "📋 See today's tasks" },
+  { command: 'tip',      description: '💡 Get a wellness tip for today' },
+  { command: 'week',     description: '📅 See your current week or day summary' },
+  { command: 'progress', description: '📊 See your completion count' },
+  { command: 'switch',   description: '🔄 Switch mode (Prepare / Recover / Tumbuh)' },
+  { command: 'about',    description: 'ℹ️ What is Sakina?' },
+  { command: 'reset',    description: '⚠️ Reset your profile and start fresh' },
+  { command: 'start',    description: '▶️ Restart onboarding' },
 ]);
 
 // ── Start bot ──────────────────────────────────────────────────────────────────

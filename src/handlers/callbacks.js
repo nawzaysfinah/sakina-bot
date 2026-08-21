@@ -7,6 +7,7 @@ import { getUser, upsertUser, getCompletedTaskIds, markTasksDone } from '../db.j
 import { formatDailyBriefing, getPrepareContent, getRecoverContent, getTumbuhContent } from '../services/content.js';
 import { handleModeCallback } from './onboarding.js';
 import { sendDailyBriefing } from './message.js';
+import { handleResetConfirm } from './commands.js';
 import { Markup } from 'telegraf';
 
 export async function handleCallback(ctx) {
@@ -75,6 +76,17 @@ export async function handleCallback(ctx) {
       `📊 *Your progress*\n\n✅ Today: ${todayDone} / ${allTaskIds.length} tasks\n📝 All-time: ${totalLogged} tasks logged`,
       { parse_mode: 'Markdown' }
     );
+  }
+
+  // ── Reset confirmation ─────────────────────────────────────────────────────
+  if (data === 'confirm_reset') {
+    await ctx.answerCbQuery();
+    return handleResetConfirm(ctx);
+  }
+
+  if (data === 'cancel_reset') {
+    await ctx.answerCbQuery('Reset cancelled 🌿');
+    return ctx.editMessageReplyMarkup({ inline_keyboard: [] });
   }
 
   // ── Unknown ────────────────────────────────────────────────────────────────
