@@ -1,58 +1,56 @@
 /**
- * AI service — parses user's freetext into completed task IDs.
- * Uses Google Gemini free API via its OpenAI-compatible endpoint.
+ * AI service — uses Google Gemini REST API directly (no SDK).
+ * Free tier: 1,500 requests/day on gemini-1.5-flash.
  */
 
-import OpenAI from 'openai';
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
 
-const client = new OpenAI({
-  apiKey:  process.env.GEMINI_API_KEY,
-  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
-});
+async function callGemini(systemPrompt, userPrompt) {
+  const url = `${GEMINI_URL}?key=${process.env.GEMINI_API_KEY}`;
 
-const MODEL = 'gemini-1.5-flash';
+  const res = await fetch(url, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: { temperature: 0.2 },
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Gemini ${res.status}: ${body}`);
+  }
+
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
+}
 
 /**
  * Given the user's message and today's task list, return IDs of tasks
  * the user has described completing.
- *
- * @param {string} userMessage  - Raw text from the user
- * @param {Array}  tasks        - Array of { id, text } objects for today
- * @returns {string[]}          - Array of matched task IDs
  */
 export async function parseCompletedTasks(userMessage, tasks) {
   if (!tasks.length) return [];
 
   const taskList = tasks.map(t => `- ID: ${t.id} | Description: ${t.text}`).join('\n');
 
-  const response = await client.chat.completions.create({
-    model: MODEL,
-    max_tokens: 256,
-    messages: [
-      {
-        role: 'system',
-        content: 'You are a helper for a maternal and baby wellness app. Reply with ONLY valid JSON — no explanation, no markdown.',
-      },
-      {
-        role: 'user',
-        content: `A user has sent a message describing what they have done today.
+  const text = await callGemini(
+    'You are a helper for a maternal wellness app. Reply with ONLY valid JSON — no markdown, no explanation.',
+    `A user described what they did today. Match their message to completed tasks.
 
-Today's task list:
+Today's tasks:
 ${taskList}
 
-User's message: "${userMessage}"
+User said: "${userMessage}"
 
-Return ONLY a JSON array of task IDs that the user has described completing. Match loosely — if they say "tummy time" match any tummy time task. If they say "sang songs" match any singing/auditory task. If nothing matches, return an empty array.
-
-Example: ["w1-m1", "w1-s1"]`,
-      },
-    ],
-  });
+Return ONLY a JSON array of matched task IDs. Match loosely — "tummy time" matches any tummy time task, "sang" matches any singing task. Empty array if nothing matches.
+Example: ["w1-m1", "w1-s1"]`
+  );
 
   try {
-    const raw    = response.choices[0].message.content.trim();
-    // Strip any accidental markdown fences
-    const clean  = raw.replace(/```json?|```/g, '').trim();
+    const clean  = text.replace(/```json?|```/g, '').trim();
     const parsed = JSON.parse(clean);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -65,26 +63,16 @@ Example: ["w1-m1", "w1-s1"]`,
  */
 export async function generateLogResponse(completedTasks, remainingCount, mode) {
   if (!completedTasks.length) {
-    return "I couldn't match that to today's tasks — could you try being a little more specific? Or tap 📋 to see the full list.";
+    return "I couldn't match that to today's tasks — try being a little more specific, or tap 📋 to see the full list.";
   }
 
   const modeEmoji = { prepare: '🌱', recover: '🌿', tumbuh: '🌸' }[mode] || '🌿';
   const taskNames = completedTasks.map(t => t.text.split('—')[0].trim()).join(', ');
 
-  const response = await client.chat.completions.create({
-    model: MODEL,
-    max_tokens: 120,
-    messages: [
-      {
-        role: 'system',
-        content: 'You are a warm, supportive wellness companion. Reply in plain text — no markdown.',
-      },
-      {
-        role: 'user',
-        content: `Write a warm, brief (2–3 sentence) response acknowledging that a new mother / parent just logged completing these activities: ${taskNames}. They have ${remainingCount} task(s) remaining today. End with a gentle encouragement. Use the emoji ${modeEmoji}.`,
-      },
-    ],
-  });
+  const text = await callGemini(
+    'You are a warm, supportive wellness companion. Reply in plain text only — no markdown.',
+    `Write a warm, brief (2–3 sentence) response for a new parent who just logged: ${taskNames}. They have ${remainingCount} task(s) left today. End with gentle encouragement. Use the ${modeEmoji} emoji.`
+  );
 
-  return response.choices[0].message.content.trim();
+  return text;
 }
