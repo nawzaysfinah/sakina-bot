@@ -3,8 +3,8 @@
  * based on the user's current day/week.
  */
 
-import birthPlanData from '../data/birthPlan.json' assert { type: 'json' };
-import babyDevData   from '../data/babyDev.json'   assert { type: 'json' };
+import birthPlanData from '../data/birthPlan.json' with { type: 'json' };
+import babyDevData   from '../data/babyDev.json'   with { type: 'json' };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
