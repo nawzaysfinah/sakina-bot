@@ -1,16 +1,16 @@
 /**
  * AI service — parses user's freetext into completed task IDs.
- * Uses xAI Grok via the OpenAI-compatible API.
+ * Uses Groq's free API (OpenAI-compatible) with Llama 3.
  */
 
 import OpenAI from 'openai';
 
 const client = new OpenAI({
-  apiKey:  process.env.XAI_API_KEY,
-  baseURL: 'https://api.x.ai/v1',
+  apiKey:  process.env.GROQ_API_KEY,
+  baseURL: 'https://api.groq.com/openai/v1',
 });
 
-const MODEL = 'grok-3-mini';
+const MODEL = 'llama-3.1-8b-instant';
 
 /**
  * Given the user's message and today's task list, return IDs of tasks
