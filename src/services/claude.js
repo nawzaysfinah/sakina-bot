@@ -1,16 +1,16 @@
 /**
  * AI service — parses user's freetext into completed task IDs.
- * Uses Groq's free API (OpenAI-compatible) with Llama 3.
+ * Uses Google Gemini free API via its OpenAI-compatible endpoint.
  */
 
 import OpenAI from 'openai';
 
 const client = new OpenAI({
-  apiKey:  process.env.GROQ_API_KEY,
-  baseURL: 'https://api.groq.com/openai/v1',
+  apiKey:  process.env.GEMINI_API_KEY,
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
 });
 
-const MODEL = 'llama-3.1-8b-instant';
+const MODEL = 'gemini-2.0-flash-lite';
 
 /**
  * Given the user's message and today's task list, return IDs of tasks
