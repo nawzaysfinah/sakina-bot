@@ -1,11 +1,16 @@
 /**
- * Claude API service — parses user's freetext into completed task IDs.
- * Uses claude-haiku-4-5 (fast, cheap, ~$0.001 per message).
+ * AI service — parses user's freetext into completed task IDs.
+ * Uses xAI Grok via the OpenAI-compatible API.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const client = new OpenAI({
+  apiKey:  process.env.XAI_API_KEY,
+  baseURL: 'https://api.x.ai/v1',
+});
+
+const MODEL = 'grok-3-mini';
 
 /**
  * Given the user's message and today's task list, return IDs of tasks
@@ -13,36 +18,42 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
  *
  * @param {string} userMessage  - Raw text from the user
  * @param {Array}  tasks        - Array of { id, text } objects for today
- * @returns {string[]}          - Array of task IDs the user completed
+ * @returns {string[]}          - Array of matched task IDs
  */
 export async function parseCompletedTasks(userMessage, tasks) {
   if (!tasks.length) return [];
 
   const taskList = tasks.map(t => `- ID: ${t.id} | Description: ${t.text}`).join('\n');
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+  const response = await client.chat.completions.create({
+    model: MODEL,
     max_tokens: 256,
     messages: [
       {
+        role: 'system',
+        content: 'You are a helper for a maternal and baby wellness app. Reply with ONLY valid JSON — no explanation, no markdown.',
+      },
+      {
         role: 'user',
-        content: `You are a helper for a maternal and baby wellness app. A user has sent a message describing what they have done today.
+        content: `A user has sent a message describing what they have done today.
 
 Today's task list:
 ${taskList}
 
 User's message: "${userMessage}"
 
-Return ONLY a JSON array of task IDs that the user has described completing, based on what they said. Match loosely — if they say "tummy time" match any tummy time task. If they say "sang songs" match any singing/auditory task. If nothing matches, return an empty array.
+Return ONLY a JSON array of task IDs that the user has described completing. Match loosely — if they say "tummy time" match any tummy time task. If they say "sang songs" match any singing/auditory task. If nothing matches, return an empty array.
 
-Reply with ONLY valid JSON, no explanation. Example: ["w1-m1", "w1-s1"]`,
+Example: ["w1-m1", "w1-s1"]`,
       },
     ],
   });
 
   try {
-    const raw = response.content[0].text.trim();
-    const parsed = JSON.parse(raw);
+    const raw    = response.choices[0].message.content.trim();
+    // Strip any accidental markdown fences
+    const clean  = raw.replace(/```json?|```/g, '').trim();
+    const parsed = JSON.parse(clean);
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
@@ -50,7 +61,7 @@ Reply with ONLY valid JSON, no explanation. Example: ["w1-m1", "w1-s1"]`,
 }
 
 /**
- * Generate an empathetic, brief response after logging tasks.
+ * Generate a warm, brief response after logging tasks.
  */
 export async function generateLogResponse(completedTasks, remainingCount, mode) {
   if (!completedTasks.length) {
@@ -60,16 +71,20 @@ export async function generateLogResponse(completedTasks, remainingCount, mode) 
   const modeEmoji = { prepare: '🌱', recover: '🌿', tumbuh: '🌸' }[mode] || '🌿';
   const taskNames = completedTasks.map(t => t.text.split('—')[0].trim()).join(', ');
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+  const response = await client.chat.completions.create({
+    model: MODEL,
     max_tokens: 120,
     messages: [
       {
+        role: 'system',
+        content: 'You are a warm, supportive wellness companion. Reply in plain text — no markdown.',
+      },
+      {
         role: 'user',
-        content: `Write a warm, brief (2–3 sentence) response acknowledging that a new mother / parent just logged completing these activities: ${taskNames}. They have ${remainingCount} task(s) remaining today. End with a gentle encouragement. Use the emoji ${modeEmoji}. No markdown.`,
+        content: `Write a warm, brief (2–3 sentence) response acknowledging that a new mother / parent just logged completing these activities: ${taskNames}. They have ${remainingCount} task(s) remaining today. End with a gentle encouragement. Use the emoji ${modeEmoji}.`,
       },
     ],
   });
 
-  return response.content[0].text.trim();
+  return response.choices[0].message.content.trim();
 }
