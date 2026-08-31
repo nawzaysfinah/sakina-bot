@@ -48,3 +48,54 @@ export async function getAllUsers() {
     .not('onboarding', 'eq', 'start');
   return data || [];
 }
+
+// ── Reminders ──────────────────────────────────────────────────────────────────
+
+export async function addReminder(userId, text, remindOn) {
+  const { data, error } = await supabase
+    .from('reminders')
+    .insert({ user_id: userId, text, remind_on: remindOn })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function getTodayReminders(userId) {
+  const today = new Date().toISOString().split('T')[0];
+  const { data } = await supabase
+    .from('reminders')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('remind_on', today)
+    .eq('done', false)
+    .order('created_at');
+  return data || [];
+}
+
+export async function getUpcomingReminders(userId) {
+  const today = new Date().toISOString().split('T')[0];
+  const { data } = await supabase
+    .from('reminders')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('done', false)
+    .gte('remind_on', today)
+    .order('remind_on')
+    .limit(10);
+  return data || [];
+}
+
+export async function markReminderDone(reminderId) {
+  await supabase
+    .from('reminders')
+    .update({ done: true })
+    .eq('id', reminderId);
+}
+
+export async function deleteReminder(reminderId) {
+  await supabase
+    .from('reminders')
+    .delete()
+    .eq('id', reminderId);
+}

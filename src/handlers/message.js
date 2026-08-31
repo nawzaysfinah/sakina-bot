@@ -4,7 +4,7 @@
  * and routes accordingly.
  */
 
-import { getUser, getCompletedTaskIds, markTasksDone } from '../db.js';
+import { getUser, getCompletedTaskIds, markTasksDone, addReminder, getTodayReminders } from '../db.js';
 import {
   formatDailyBriefing,
   getPrepareContent,
@@ -12,6 +12,7 @@ import {
   getTumbuhContent,
 } from '../services/content.js';
 import { parseCompletedTasks, generateLogResponse } from '../services/claude.js';
+import { parseReminderIntent } from '../services/reminders.js';
 import { handleOnboarding } from './onboarding.js';
 import { Markup } from 'telegraf';
 
@@ -66,6 +67,22 @@ export async function handleMessage(ctx) {
     );
   }
 
+  // ── Reminder intent detection ──────────────────────────────────────────────
+  const reminderIntent = await parseReminderIntent(text);
+  if (reminderIntent.isReminder) {
+    const reminder = await addReminder(user.id, reminderIntent.text, reminderIntent.date);
+    const dateLabel = new Date(reminderIntent.date + 'T00:00:00').toLocaleDateString('en-SG', {
+      weekday: 'long', day: 'numeric', month: 'long'
+    });
+    return ctx.reply(
+      `📌 *Reminder saved!*\n\n"${reminderIntent.text}"\n\n📅 I'll remind you on *${dateLabel}*\n\nView all reminders with /reminders`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('🗑 Delete this reminder', `del_reminder_${reminder.id}`)]]),
+      }
+    );
+  }
+
   // ── Natural language task logging ──────────────────────────────────────────
   const completedIds  = await getCompletedTaskIds(userId, user.mode);
   const { allTaskIds } = formatDailyBriefing(user, completedIds);
@@ -103,7 +120,13 @@ export async function sendDailyBriefing(ctx, user) {
 
   const progressLine = `\n\n_${doneTodayCount} of ${totalCount} tasks done today_`;
 
-  await ctx.reply(text + progressLine, {
+  // Append today's reminders if any
+  const todayReminders = await getTodayReminders(user.id);
+  const reminderBlock  = todayReminders.length
+    ? `\n\n📌 *Reminders for today:*\n` + todayReminders.map(r => `• ${r.text}`).join('\n')
+    : '';
+
+  await ctx.reply(text + progressLine + reminderBlock, {
     parse_mode: 'Markdown',
     ...Markup.inlineKeyboard([
       [Markup.button.callback('✅ Mark all done', 'mark_all_done')],

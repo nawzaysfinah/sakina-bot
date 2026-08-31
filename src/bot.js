@@ -12,7 +12,7 @@ import { Telegraf } from 'telegraf';
 import { message }  from 'telegraf/filters';
 import { handleMessage }  from './handlers/message.js';
 import { handleCallback } from './handlers/callbacks.js';
-import { handleAbout, handleWeek, handleTip, handleReset } from './handlers/commands.js';
+import { handleAbout, handleWeek, handleTip, handleReset, handleReminders } from './handlers/commands.js';
 import { initScheduler }  from './scheduler.js';
 import http from 'http';
 
@@ -42,7 +42,8 @@ bot.command('switch',   ctx => handleMessage(ctx));
 bot.command('about',    ctx => handleAbout(ctx));
 bot.command('week',     ctx => handleWeek(ctx));
 bot.command('tip',      ctx => handleTip(ctx));
-bot.command('reset',    ctx => handleReset(ctx));
+bot.command('reset',     ctx => handleReset(ctx));
+bot.command('reminders', ctx => handleReminders(ctx));
 
 // ── Text messages ──────────────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ bot.telegram.setMyCommands([
   { command: 'week',     description: '📅 See your current week or day summary' },
   { command: 'progress', description: '📊 See your completion count' },
   { command: 'switch',   description: '🔄 Switch mode (Prepare / Recover / Tumbuh)' },
+  { command: 'reminders', description: '📌 View and manage your reminders' },
   { command: 'about',    description: 'ℹ️ What is Sakina?' },
   { command: 'reset',    description: '⚠️ Reset your profile and start fresh' },
   { command: 'start',    description: '▶️ Restart onboarding' },

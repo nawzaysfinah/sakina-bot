@@ -3,8 +3,9 @@
  * /about, /week, /tip, /reset
  */
 
-import { getUser, upsertUser } from '../db.js';
+import { getUser, upsertUser, getUpcomingReminders, markReminderDone, deleteReminder } from '../db.js';
 import { getPrepareContent, getRecoverContent, getTumbuhContent } from '../services/content.js';
+import { formatReminderList } from '../services/reminders.js';
 import { Markup } from 'telegraf';
 
 // ── /about ────────────────────────────────────────────────────────────────────
@@ -170,6 +171,38 @@ export async function handleResetConfirm(ctx) {
   await ctx.reply(
     '✅ Profile reset. Send /start to begin again 🌿',
     { parse_mode: 'Markdown' }
+  );
+}
+
+// ── /reminders ────────────────────────────────────────────────────────────────
+
+export async function handleReminders(ctx) {
+  const user = await getUser(ctx.from.id);
+  if (!user || user.onboarding !== 'done') {
+    return ctx.reply('Please complete setup first — send /start');
+  }
+
+  const reminders = await getUpcomingReminders(user.id);
+
+  if (!reminders.length) {
+    return ctx.reply(
+      `📌 *No upcoming reminders*\n\nTo add one, just tell me:\n_"Remind me on Friday to call the hospital"_`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
+  const list = formatReminderList(reminders);
+  const buttons = reminders.map(r => [
+    Markup.button.callback(`✅ Done — ${r.text.slice(0, 30)}`, `done_reminder_${r.id}`),
+    Markup.button.callback('🗑', `del_reminder_${r.id}`),
+  ]);
+
+  return ctx.reply(
+    `📌 *Your upcoming reminders:*\n\n${list}`,
+    {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons),
+    }
   );
 }
 

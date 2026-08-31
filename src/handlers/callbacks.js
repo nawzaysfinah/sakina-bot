@@ -3,7 +3,7 @@
  * All callback_data strings are dispatched here.
  */
 
-import { getUser, upsertUser, getCompletedTaskIds, markTasksDone } from '../db.js';
+import { getUser, upsertUser, getCompletedTaskIds, markTasksDone, markReminderDone, deleteReminder } from '../db.js';
 import { formatDailyBriefing, getPrepareContent, getRecoverContent, getTumbuhContent } from '../services/content.js';
 import { handleModeCallback } from './onboarding.js';
 import { sendDailyBriefing } from './message.js';
@@ -76,6 +76,22 @@ export async function handleCallback(ctx) {
       `📊 *Your progress*\n\n✅ Today: ${todayDone} / ${allTaskIds.length} tasks\n📝 All-time: ${totalLogged} tasks logged`,
       { parse_mode: 'Markdown' }
     );
+  }
+
+  // ── Reminder — mark done ───────────────────────────────────────────────────
+  if (data.startsWith('done_reminder_')) {
+    const id = data.replace('done_reminder_', '');
+    await markReminderDone(id);
+    await ctx.answerCbQuery('Reminder marked done ✅');
+    return ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+  }
+
+  // ── Reminder — delete ──────────────────────────────────────────────────────
+  if (data.startsWith('del_reminder_')) {
+    const id = data.replace('del_reminder_', '');
+    await deleteReminder(id);
+    await ctx.answerCbQuery('Reminder deleted 🗑');
+    return ctx.editMessageReplyMarkup({ inline_keyboard: [] });
   }
 
   // ── Reset confirmation ─────────────────────────────────────────────────────
