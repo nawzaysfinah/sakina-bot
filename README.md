@@ -12,10 +12,39 @@ A daily wellness companion for pregnancy, postpartum recovery, and baby developm
 | 🌿 **Recover** | Daily postpartum recovery schedule (Days 1–44) with jamu, rest, and movement targets |
 | 🌸 **Tumbuh** | Evidence-based baby development activities (0–12 months): motor, social, and cognitive |
 
-- **Daily 8am briefing** — personalised task list sent every morning
+- **Daily 8am briefing** — personalised task list sent every morning, including any reminders due that day
 - **7pm evening check-in** — tracks remaining tasks and celebrates completion
-- **Natural language logging** — "I did tummy time and sang songs" → Claude matches to task IDs
+- **Natural language task logging** — "I did tummy time and sang songs" → Gemini matches to task IDs automatically
+- **Natural language reminders** — "Remind me on Friday to call the hospital" → saved to database, shown in morning briefing
 - **Multi-user** — each user has their own profile and progress tracked in Supabase
+
+---
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `/today` | 📋 See today's tasks |
+| `/tip` | 💡 Get a wellness tip for today |
+| `/week` | 📅 See your current week or day summary |
+| `/progress` | 📊 See your completion count |
+| `/reminders` | 📌 View and manage your reminders |
+| `/switch` | 🔄 Switch mode (Prepare / Recover / Tumbuh) |
+| `/about` | ℹ️ What is Sakina? |
+| `/reset` | ⚠️ Reset your profile and start fresh |
+| `/start` | ▶️ Register or restart onboarding |
+
+### Natural language — no commands needed
+
+**Log tasks:**
+> "I did tummy time and read a book to the baby"
+> → Logs matching tasks automatically ✅
+
+**Set reminders:**
+> "Remind me on Friday to call the hospital"
+> "Add a reminder for 10 Sep to pack my hospital bag"
+> "Remember to check baby weight next Monday"
+> → Saved to database, confirmed with parsed date 📌
 
 ---
 
@@ -25,14 +54,16 @@ A daily wellness companion for pregnancy, postpartum recovery, and baby developm
 src/
   bot.js              ← Telegraf entry point (webhook + polling fallback)
   scheduler.js        ← node-cron: 8am briefing, 7pm check-in
-  db.js               ← Supabase client (users + task_completions)
+  db.js               ← Supabase client (users, task_completions, reminders)
   handlers/
-    message.js        ← Incoming message router + natural language task logging
+    message.js        ← Message router: reminder intent → task logging → fallback
     callbacks.js      ← Inline keyboard button handlers
     onboarding.js     ← Multi-step registration flow
+    commands.js       ← /about, /week, /tip, /reset, /reminders
   services/
     content.js        ← Mode-specific task content + daily briefing formatter
-    claude.js         ← Haiku: task parsing + empathetic log responses
+    claude.js         ← Gemini: task parsing + empathetic log responses
+    reminders.js      ← Gemini: reminder intent detection + date resolution
   data/
     birthPlan.json    ← 9 weeks × weekend tasks + daily habits
     babyDev.json      ← 6 phases × 12 week-periods × motor/social/cognitive tasks
@@ -51,15 +82,25 @@ src/
 ### 2. Set up Supabase
 
 1. Create a free project at [supabase.com](https://supabase.com)
-2. Go to **SQL Editor** and run the schema:
+2. Go to **SQL Editor** and run both schema files in order:
 
 ```sql
--- Copy and paste the contents of supabase_schema.sql
+-- 1. Core schema
+-- paste contents of supabase_schema.sql
+
+-- 2. Reminders table
+-- paste contents of supabase_reminders.sql
 ```
 
 3. Copy your **Project URL** and **service_role** key (Settings → API)
 
-### 3. Configure Environment Variables
+### 3. Get a Gemini API key
+
+1. Go to [aistudio.google.com](https://aistudio.google.com)
+2. Click **Get API key → Create API key**
+3. Copy the key (starts with `AIza...`)
+
+### 4. Configure Environment Variables
 
 ```bash
 cp .env.example .env
@@ -69,14 +110,14 @@ Edit `.env`:
 
 ```env
 BOT_TOKEN=your_bot_token_from_botfather
-ANTHROPIC_API_KEY=your_anthropic_api_key
+GEMINI_API_KEY=your_gemini_api_key
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=your_service_role_key
 WEBHOOK_URL=                    # leave empty for local dev (uses polling)
 PORT=3000
 ```
 
-### 4. Install and Run Locally
+### 5. Install and Run Locally
 
 ```bash
 npm install
@@ -91,50 +132,34 @@ The bot starts in **polling mode** when `WEBHOOK_URL` is not set — perfect for
 
 1. Push this project to a GitHub repo
 2. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub
-3. Set environment variables in Railway's dashboard:
+3. Add environment variables in Railway's **Variables** tab:
    - `BOT_TOKEN`
-   - `ANTHROPIC_API_KEY`
+   - `GEMINI_API_KEY`
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_KEY`
-   - `WEBHOOK_URL` → your Railway service URL (e.g. `https://sakina-bot-production.up.railway.app`)
    - `PORT=3000`
-4. Railway auto-detects Node.js and runs `npm start`
-
-The bot switches to **webhook mode** automatically when `WEBHOOK_URL` is set.
-
----
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `/start` | Register and choose your mode |
-| `/today` | See today's task list |
-| `/progress` | See your completion count |
-| `/switch` | Change mode |
-| `/help` | Show help |
-
-Or just **tell the bot what you've done** — it uses Claude to match your message to tasks:
-
-> "I did tummy time and read a book to the baby"  
-> → Logs `w1-m1` and `w1-c2` automatically ✅
+4. Go to **Settings → Networking → Generate Domain** — copy the URL
+5. Add one more variable: `WEBHOOK_URL=https://your-service.up.railway.app`
+6. Railway redeploys automatically in webhook mode
 
 ---
 
 ## Tech Stack
 
 - **Telegraf v4** — Telegram bot framework
-- **Claude Haiku** (`claude-haiku-4-5-20251001`) — NLP task parsing + warm responses
+- **Google Gemini** (`gemini-3.5-flash-lite`) — NLP task matching, reminder intent detection, warm responses
 - **Supabase** — PostgreSQL database for multi-user state
-- **node-cron** — Scheduled daily briefings
-- **Node.js 18+** — ES modules throughout
+- **node-cron** — Scheduled daily briefings (8am + 7pm SGT)
+- **Node.js 18+** — ES modules throughout, no build step
 
 ---
 
 ## Database Schema
 
-See [`supabase_schema.sql`](./supabase_schema.sql) for the full schema.
+Three tables — run both SQL files in Supabase:
 
-Two tables:
-- `users` — profile, mode, dates, onboarding state
-- `task_completions` — (user_id, task_id, mode) with unique constraint to prevent duplicates
+| File | Table | Purpose |
+|------|-------|---------|
+| `supabase_schema.sql` | `users` | Profile, mode, dates, onboarding state |
+| `supabase_schema.sql` | `task_completions` | (user_id, task_id, mode) — deduplicated completions |
+| `supabase_reminders.sql` | `reminders` | (user_id, text, remind_on, done) — custom reminders |
