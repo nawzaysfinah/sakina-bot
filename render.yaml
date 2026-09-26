@@ -1,0 +1,38 @@
+services:
+  # ── Sakina Telegram bot (Node.js) ─────────────────────────────────────────────
+  - type: web
+    name: sakina-bot
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: WEBHOOK_URL
+        sync: false          # set to your Render URL: https://sakina-bot.onrender.com
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: PAPER_READER_URL
+        sync: false          # set to reader's Render URL: https://sakina-reader.onrender.com
+      - key: PAPER_READER_KEY
+        sync: false
+      - key: MINIAPP_URL
+        sync: false          # same as WEBHOOK_URL (bot serves the Mini App too)
+
+  # ── Paper notebook reader (Python / FastAPI) ───────────────────────────────────
+  - type: web
+    name: sakina-reader
+    runtime: docker
+    dockerfilePath: reader/Dockerfile
+    dockerContext: reader
+    plan: free
+    envVars:
+      - key: READER_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
