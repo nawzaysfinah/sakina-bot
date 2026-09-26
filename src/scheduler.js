@@ -17,7 +17,7 @@ import {
   startEpdsSession, getEpdsSession,
   addReminder,
 } from './db.js';
-import { formatDailyBriefing, getUpcomingVaccinations } from './services/content.js';
+import { formatDailyBriefing, getDadContent, getUpcomingVaccinations } from './services/content.js';
 import { sendEpdsQuestion } from './handlers/message.js';
 import { Markup } from 'telegraf';
 
@@ -96,6 +96,10 @@ function getLocalHour(date, timezone) {
 // ── Morning briefing ───────────────────────────────────────────────────────────
 
 async function sendMorningBriefing(user) {
+  if (user.baby_role === 'father' && user.linked_user_id) {
+    return sendDadMorningBriefing(user);
+  }
+
   const completedIds         = await getCompletedTaskIds(user.id, user.mode);
   const { text, allTaskIds } = formatDailyBriefing(user, completedIds);
   const doneTodayCount       = completedIds.filter(id => allTaskIds.includes(id)).length;
@@ -133,11 +137,85 @@ async function sendMorningBriefing(user) {
   }
 }
 
+async function sendDadMorningBriefing(user) {
+  if (!supabaseRef) return;
+
+  // Fetch mum's data for delivery type and baby dob
+  const { data: mum } = await supabaseRef.from('users')
+    .select('baby_dob, delivery_type, baby_name')
+    .eq('id', user.linked_user_id)
+    .maybeSingle();
+
+  if (!mum?.baby_dob) return; // mum hasn't set baby profile yet
+
+  const babyDays   = daysBetween(mum.baby_dob);
+  const isCSection = mum.delivery_type === 'cesarean';
+  const { ageLabel, babyTasks, mumTasks, allTaskIds } = getDadContent(babyDays, isCSection);
+
+  const completedIds   = await getCompletedTaskIds(user.id, 'father');
+  const doneTodayCount = completedIds.filter(id => allTaskIds.includes(id)).length;
+
+  const greeting   = getMorningGreeting(user);
+  const streakLine = user.streak_days > 1 ? `\n🔥 *${user.streak_days}-day streak!*` : '';
+
+  const babyLines = babyTasks.map(t => {
+    const done = completedIds.includes(t.id);
+    return `${done ? '✅' : '◻️'} ${t.text}`;
+  });
+
+  const mumLines = mumTasks.map(t => {
+    const done = completedIds.includes(t.id);
+    return `${done ? '✅' : '◻️'} ${t.text}`;
+  });
+
+  const deliveryNote = isCSection ? ' _(C-section recovery)_' : '';
+  const progressLine = doneTodayCount > 0
+    ? `\n${streakLine}_${doneTodayCount} of ${allTaskIds.length} already done ✅_`
+    : `\n${streakLine}_${allTaskIds.length} tasks for today_`;
+
+  const text = [
+    `👶 *${mum.baby_name} — ${ageLabel}*`,
+    '',
+    '*With baby today:*',
+    ...babyLines,
+    '',
+    `*Supporting ${mum.baby_name ? mum.baby_name.split(' ')[0] + "'s" : 'mum’s'} recovery today:*${deliveryNote}`,
+    ...mumLines,
+    '',
+    progressLine,
+  ].join('\n');
+
+  await botInstance.telegram.sendMessage(
+    user.chat_id,
+    `${greeting}\n\n${text}`,
+    {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Mark all done', 'mark_all_done')],
+        [Markup.button.callback('📊 My progress',   'show_progress')],
+      ]),
+    }
+  );
+}
+
 // ── Evening check-in ──────────────────────────────────────────────────────────
 
 async function sendEveningCheckin(user) {
-  const completedIds   = await getCompletedTaskIds(user.id, user.mode);
-  const { allTaskIds } = formatDailyBriefing(user, completedIds);
+  const effectiveMode = user.baby_role === 'father' ? 'father' : user.mode;
+  const completedIds  = await getCompletedTaskIds(user.id, effectiveMode);
+
+  let allTaskIds;
+  if (user.baby_role === 'father' && user.linked_user_id && supabaseRef) {
+    const { data: mum } = await supabaseRef.from('users')
+      .select('baby_dob, delivery_type').eq('id', user.linked_user_id).maybeSingle();
+    if (mum?.baby_dob) {
+      const { allTaskIds: dadIds } = getDadContent(daysBetween(mum.baby_dob), mum.delivery_type === 'cesarean');
+      allTaskIds = dadIds;
+    }
+  }
+  if (!allTaskIds) {
+    ({ allTaskIds } = formatDailyBriefing(user, completedIds));
+  }
   const todayDone      = completedIds.filter(id => allTaskIds.includes(id)).length;
   const remaining      = allTaskIds.length - todayDone;
 

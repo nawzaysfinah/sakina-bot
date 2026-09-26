@@ -230,6 +230,126 @@ function getWeekDataForAge(weeks) {
   return null;
 }
 
+// ─── Dad mode — baby care + mum support, week/day-aware ──────────────────────
+
+const DAD_BABY = [
+  { start: 0, end: 6, tasks: [
+    { id: 'd-b-skin',    text: 'Skin-to-skin 30 min — shirt off, baby chest-to-chest. Calms them and builds your bond' },
+    { id: 'd-b-nappy',   text: 'Handle all overnight nappy changes so mum only needs to feed' },
+    { id: 'd-b-cues',    text: 'Learn hunger cues — rooting, fists to mouth, stirring — so you can pass baby before crying starts' },
+    { id: 'd-b-wind',    text: 'Wind baby after every feed — upright on shoulder, gentle circular rub on the back' },
+    { id: 'd-b-swaddle', text: 'Practice swaddling snugly — a good swaddle is one of the best settling tools you have' },
+  ]},
+  { start: 7, end: 20, tasks: [
+    { id: 'd-b-skin2',   text: 'Skin-to-skin daily — your body temperature regulates theirs and your presence reduces cortisol' },
+    { id: 'd-b-settle',  text: 'Do one overnight settle solo — let mum sleep at least 4 hours straight' },
+    { id: 'd-b-bath',    text: "Bath time is yours — 37°C water, one hand on baby at all times, never walk away" },
+    { id: 'd-b-5s',      text: 'When baby is unsettled: swaddle, side-lying hold, shush, gentle swing, offer dummy' },
+    { id: 'd-b-wind2',   text: 'Wind and burp after every feed — try different positions (shoulder, lap face-down, seated)' },
+  ]},
+  { start: 21, end: 41, tasks: [
+    { id: 'd-b-talk',    text: 'Talk to baby constantly — narrate what you are doing. Language wiring starts now' },
+    { id: 'd-b-tummy',   text: 'Tummy time on your chest or the mat — 2-3 min while baby is awake and alert, 2-3 times today' },
+    { id: 'd-b-read',    text: 'Read one short book aloud. Any book. Your voice is what matters, not the words' },
+    { id: 'd-b-solo',    text: 'Solo baby duty 30 min — give mum a real break with no interruptions' },
+  ]},
+  { start: 42, end: 83, tasks: [
+    { id: 'd-b-tummy2',  text: 'Tummy time on the floor mat, 3 times today while baby is awake — builds neck and core strength' },
+    { id: 'd-b-faces',   text: 'Make faces and hold baby 20-30cm from your face — they are learning to track and mirror' },
+    { id: 'd-b-read2',   text: 'Read aloud together — board books with high contrast and simple shapes are best now' },
+    { id: 'd-b-break',   text: 'Give mum a 2-hour uninterrupted break today — she goes out or rests, you handle baby fully' },
+  ]},
+  { start: 84, end: 999, tasks: [
+    { id: 'd-b-floor',   text: 'Floor play and tummy time, 3 sessions today — rolling, reaching, exploring is how they learn' },
+    { id: 'd-b-babble',  text: 'Respond to every babble — pause, let baby "answer", respond back. They are learning conversation' },
+    { id: 'd-b-read3',   text: 'Read aloud daily — it is the single best thing you can do for language development' },
+    { id: 'd-b-solo2',   text: "Give mum an afternoon off — she needs time that is completely hers, not on call" },
+  ]},
+];
+
+const DAD_MUM_VAGINAL = [
+  { start: 1, end: 7, tasks: [
+    { id: 'd-m-water',   text: 'Bring mum water every time baby feeds — breastfeeding dehydrates fast and she may forget to ask' },
+    { id: 'd-m-meals',   text: 'Cook or order three warm meals today — she should not be getting up to cook' },
+    { id: 'd-m-visit',   text: 'Manage all visitors — she should not be entertaining anyone. You are the filter' },
+    { id: 'd-m-sleep',   text: 'Take baby between feeds so she gets at least one 2-3 hour sleep block' },
+    { id: 'd-m-mood',    text: 'Ask once how she is feeling — not how baby is doing, how she is doing. Then just listen' },
+  ]},
+  { start: 8, end: 21, tasks: [
+    { id: 'd-m-water2',  text: 'Water at every feed — keep a large bottle near her feeding spot, refill it' },
+    { id: 'd-m-meals2',  text: 'Three warm meals every day — she may forget to eat, especially during cluster feeding' },
+    { id: 'd-m-night',   text: 'Aim for one 4-5 hour sleep block for her tonight — take the first half of the night' },
+    { id: 'd-m-mood2',   text: 'Baby blues peak around Day 3-5 then usually lift. If she seems low past Day 10, gently raise seeing a doctor' },
+    { id: 'd-m-check',   text: 'Check in on her physically — stitches healing, any pain, bleeding reducing?' },
+  ]},
+  { start: 22, end: 44, tasks: [
+    { id: 'd-m-meals3',  text: 'Three meals and good hydration — this is still your job' },
+    { id: 'd-m-out',     text: 'She may want more independence now — support a short walk or outing without baby if she wants' },
+    { id: 'd-m-6wk',     text: '6-week check is coming — make sure the appointment is booked, offer to go together' },
+    { id: 'd-m-mood3',   text: 'PND can emerge weeks after birth — keep noticing her emotional state, not just her physical recovery' },
+  ]},
+  { start: 45, end: 999, tasks: [
+    { id: 'd-m-support', text: 'Her recovery is ongoing — continue meals, check-ins, and giving her real breaks' },
+    { id: 'd-m-pnd',     text: 'PND can appear late — watch for persistent low mood, withdrawal, or feeling like she is not bonding with baby' },
+    { id: 'd-m-time',    text: 'Give her time that is fully hers each week — not baby admin, not housework. Just hers' },
+  ]},
+];
+
+const DAD_MUM_CESAREAN = [
+  { start: 1, end: 7, tasks: [
+    { id: 'd-m-cs-water', text: 'Water every single feed — dehydration slows wound healing and tanks milk supply' },
+    { id: 'd-m-cs-lift',  text: 'She lifts nothing heavier than baby — you do everything else: laundry, bags, older kids' },
+    { id: 'd-m-cs-wound', text: 'Wound check today — look for redness, swelling, warmth, or any discharge. Call clinic immediately if any' },
+    { id: 'd-m-cs-meals', text: 'Three warm meals, fibre-rich — constipation and straining are dangerous for her wound right now' },
+    { id: 'd-m-cs-stairs',text: 'Limit her stair use — one slow trip at a time, with you there if possible' },
+    { id: 'd-m-cs-mood',  text: 'Ask how she is feeling — not just physically. C-section recovery is emotionally complex too' },
+  ]},
+  { start: 8, end: 21, tasks: [
+    { id: 'd-m-cs-water2', text: 'Water at every feed — keep a full bottle within reach at all times' },
+    { id: 'd-m-cs-wound2', text: 'Wound check — still healing internally even if the surface looks fine' },
+    { id: 'd-m-cs-lift2',  text: 'No lifting rule still applies — no bags, no groceries, no carrying anything above baby weight' },
+    { id: 'd-m-cs-meals2', text: 'Three warm meals — protein is important for wound healing right now' },
+    { id: 'd-m-cs-night',  text: 'Take the first half of the night — she needs unbroken sleep for wound healing, not just rest' },
+    { id: 'd-m-cs-mood2',  text: 'Baby blues peaking around Day 3-5. If mood is still low at Day 10, raise it gently — C-section PND is real' },
+  ]},
+  { start: 22, end: 44, tasks: [
+    { id: 'd-m-cs-scar',  text: 'From Day 21: scar massage 2 min if wound is fully closed — circular motions, Bio-Oil or coconut oil' },
+    { id: 'd-m-cs-meals3', text: 'Three meals and hydration — still her most important recovery inputs' },
+    { id: 'd-m-cs-6wk',   text: '6-week check: make sure it is booked. This is a big milestone for C-section recovery' },
+    { id: 'd-m-cs-mood3', text: 'Continue checking in emotionally — how does she feel about the birth? Does she feel like herself?' },
+  ]},
+  { start: 45, end: 999, tasks: [
+    { id: 'd-m-cs-cont',  text: 'Her internal recovery continues long after the surface heals — she still needs meals, rest, and your attention' },
+    { id: 'd-m-cs-pnd',   text: 'PND can emerge late — watch for persistent low mood, withdrawal, difficulty bonding' },
+    { id: 'd-m-cs-time',  text: 'Give her time that is fully hers each week — not baby admin, not housework. Just hers' },
+  ]},
+];
+
+export function getDadContent(babyDays, isCSection) {
+  const mumDay = babyDays + 1;
+
+  const babySlot = DAD_BABY.find(s => babyDays >= s.start && babyDays <= s.end)
+    || DAD_BABY[DAD_BABY.length - 1];
+
+  const mumSchedule = isCSection ? DAD_MUM_CESAREAN : DAD_MUM_VAGINAL;
+  const mumSlot = mumSchedule.find(s => mumDay >= s.start && mumDay <= s.end)
+    || mumSchedule[mumSchedule.length - 1];
+
+  const babyWeeks = Math.floor(babyDays / 7);
+  const ageLabel = babyDays < 14
+    ? `Day ${babyDays + 1}`
+    : babyWeeks < 16
+    ? `Week ${babyWeeks}`
+    : `${Math.floor(babyWeeks / 4.3)} months`;
+
+  return {
+    ageLabel,
+    babyTasks: babySlot.tasks,
+    mumTasks:  mumSlot.tasks,
+    allTaskIds: [...babySlot.tasks, ...mumSlot.tasks].map(t => t.id),
+  };
+}
+
 // ─── Vaccination schedule (Singapore NCIS) ────────────────────────────────────
 
 const VACCINATION_SCHEDULE = [

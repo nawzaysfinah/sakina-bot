@@ -109,10 +109,10 @@ export function registerPaperLog(bot, {
     const { error } = await supabase.from('users').update({
       linked_user_id: owner.id,
       baby_role: 'father',
+      mode: 'father',
       onboarding: 'done',
       chat_id: ctx.chat.id,
       name: ctx.from.first_name || 'Partner',
-      ...(!me?.mode ? { mode: 'tumbuh' } : {}),
     }).eq('id', ctx.from.id);
 
     if (error) return ctx.reply("Sorry, I couldn't link you. Please try again.");
