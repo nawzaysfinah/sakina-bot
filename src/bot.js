@@ -123,9 +123,8 @@ async function start() {
     });
   } else {
     // ── Polling mode (local dev / no WEBHOOK_URL) ────────────────────────────
-    await bot.launch();
-    console.log('🤖 Sakina bot started via polling (no WEBHOOK_URL set)');
-    // Always bind an HTTP server so Render (and any health checker) sees a live port.
+    // Start HTTP server BEFORE bot.launch() — launch() never resolves, so
+    // anything after an awaited launch() is unreachable.
     http.createServer((req, res) => {
       if (req.url === '/health') {
         res.statusCode = 200;
@@ -137,6 +136,9 @@ async function start() {
       }
       res.statusCode = 404; res.end('Not found');
     }).listen(PORT, () => console.log(`   HTTP server on port ${PORT} (polling mode)`));
+
+    bot.launch().catch(err => console.error('Polling error:', err));
+    console.log('🤖 Sakina bot started via polling (no WEBHOOK_URL set)');
   }
 
   // Graceful shutdown
