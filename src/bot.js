@@ -14,9 +14,11 @@ import { handleMessage }  from './handlers/message.js';
 import { handleCallback } from './handlers/callbacks.js';
 import {
   handleAbout, handleWeek, handleTip, handleReset, handleReminders,
-  handleUrgent, handleUndo, handleLog, handleShare, handleView,
+  handleUrgent, handleUndo, handleShare, handleView,
 } from './handlers/commands.js';
 import { initScheduler } from './scheduler.js';
+import { supabase } from './db.js';
+import { registerBabyLog } from './babyLog/index.js';
 import http from 'http';
 
 // ── Bot setup ──────────────────────────────────────────────────────────────────
@@ -35,6 +37,15 @@ bot.catch((err, ctx) => {
   ctx.reply('Something went wrong — please try again in a moment 🌿').catch(() => {});
 });
 
+// ── Baby log — register BEFORE any other photo handler ─────────────────────────
+
+const babyLog = registerBabyLog(bot, {
+  supabase,
+  miniAppUrl:     process.env.MINIAPP_URL,
+  botToken:       process.env.BOT_TOKEN,
+  miniAppBasePath: '/app',
+});
+
 // ── Commands ───────────────────────────────────────────────────────────────────
 
 bot.start(ctx    => handleMessage(ctx));
@@ -49,7 +60,7 @@ bot.command('reset',     ctx => handleReset(ctx));
 bot.command('reminders', ctx => handleReminders(ctx));
 bot.command('urgent',    ctx => handleUrgent(ctx));
 bot.command('undo',      ctx => handleUndo(ctx));
-bot.command('log',       ctx => handleLog(ctx));
+// /log is registered by babyLog's registerTapLog (tap.js)
 bot.command('share',     ctx => handleShare(ctx));
 bot.command('view',      ctx => handleView(ctx));
 bot.command('help',      ctx => handleMessage(ctx));
@@ -70,10 +81,13 @@ bot.telegram.setMyCommands([
   { command: 'week',      description: '📅 See your current week or day summary' },
   { command: 'progress',  description: '📊 See completion count + streak' },
   { command: 'switch',    description: '🔄 Switch mode (Prepare / Recover / Tumbuh)' },
+  { command: 'log',       description: '📔 Baby log: quick-tap feed / sleep / diaper' },
+  { command: 'scan',      description: '📷 Scan the notebook page' },
+  { command: 'dashboard', description: '📊 Open the baby log dashboard' },
+  { command: 'newbaby',   description: '🤍 Set up a baby profile' },
   { command: 'reminders', description: '📌 View and manage your reminders' },
   { command: 'urgent',    description: '🚨 Emergency danger signs & contacts' },
   { command: 'undo',      description: '↩️ Unmark last logged task' },
-  { command: 'log',       description: '📊 Log feeding, weight, or nappy' },
   { command: 'share',     description: '🔗 Share your journal with partner/doula' },
   { command: 'about',     description: 'ℹ️ What is Sakina?' },
   { command: 'reset',     description: '⚠️ Reset your profile and start fresh' },
@@ -87,23 +101,39 @@ const PORT        = parseInt(process.env.PORT || '3000', 10);
 
 async function start() {
   // Start scheduler (daily briefings + health checks)
-  initScheduler(bot);
+  initScheduler(bot, { babyLog, supabase });
 
   if (WEBHOOK_URL) {
     // ── Webhook mode (production) ────────────────────────────────────────────
     const webhookPath = `/bot${process.env.BOT_TOKEN}`;
     await bot.telegram.setWebhook(`${WEBHOOK_URL}${webhookPath}`);
 
-    const server = http.createServer(bot.webhookCallback(webhookPath));
+    const webhookHandler = bot.webhookCallback(webhookPath);
+    const server = http.createServer((req, res) => {
+      // Route /app/* to the Mini App handler; everything else to webhook
+      if (babyLog.miniApp && req.url && (req.url === '/app' || req.url.startsWith('/app/'))) {
+        return babyLog.miniApp(req, res, () => { res.statusCode = 404; res.end('Not found'); });
+      }
+      return webhookHandler(req, res);
+    });
     server.listen(PORT, () => {
       console.log(`🤖 Sakina bot started via webhook on port ${PORT}`);
       console.log(`   Webhook: ${WEBHOOK_URL}${webhookPath}`);
+      if (process.env.MINIAPP_URL) console.log(`   Mini App: ${process.env.MINIAPP_URL}`);
     });
   } else {
     // ── Polling mode (local dev) ─────────────────────────────────────────────
     await bot.launch();
     console.log('🤖 Sakina bot started via polling (local dev mode)');
-    console.log('   Set WEBHOOK_URL in .env to switch to webhook mode');
+    // Serve Mini App on a local HTTP server even in polling mode
+    if (babyLog.miniApp) {
+      http.createServer((req, res) => {
+        if (req.url === '/app' || req.url.startsWith('/app/')) {
+          return babyLog.miniApp(req, res, () => { res.statusCode = 404; res.end('Not found'); });
+        }
+        res.statusCode = 404; res.end('Not found');
+      }).listen(PORT, () => console.log(`   Mini App dev server: http://localhost:${PORT}/app/`));
+    }
   }
 
   // Graceful shutdown

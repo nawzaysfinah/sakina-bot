@@ -59,7 +59,7 @@ export async function handleOnboarding(ctx, step) {
       onboarding: 'done',
     });
     return ctx.reply(
-      `✅ Got it! I'll send you your weekly birth preparation plan every morning at 8am.\n\nSend me a message any time to log what you've done, or use /today to see today's tasks.`,
+      `✅ Got it! I'll send you your weekly birth preparation plan every morning at 7am.\n\nSend me a message any time to log what you've done, or use /today to see today's tasks.`,
       { parse_mode: 'Markdown' }
     );
   }
@@ -74,13 +74,49 @@ export async function handleOnboarding(ctx, step) {
       chat_id:    ctx.chat.id,
       name:       ctx.from.first_name || 'Friend',
       baby_dob:   parsed,
-      onboarding: 'done',
+      onboarding: 'baby_role',
     });
     return ctx.reply(
-      `✅ Wonderful! I'll send your daily plan at 8am every morning.\n\nJust message me what you've done and I'll update your record automatically.\n\nTap /today to see today's tasks right now 🌿`,
-      { parse_mode: 'Markdown' }
+      `Perfect! One more — what is your role?`,
+      {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('👩 Mother', 'role_mother')],
+          [Markup.button.callback('👨 Father', 'role_father')],
+          [Markup.button.callback('👤 Other parent / guardian', 'role_parent')],
+        ]),
+      }
     );
   }
+
+  // ── Step: baby_role (text fallback — show buttons again) ──────────────────
+  if (step === 'baby_role') {
+    return ctx.reply(
+      'Please choose your role:',
+      Markup.inlineKeyboard([
+        [Markup.button.callback('👩 Mother', 'role_mother')],
+        [Markup.button.callback('👨 Father', 'role_father')],
+        [Markup.button.callback('👤 Other parent / guardian', 'role_parent')],
+      ])
+    );
+  }
+}
+
+// ── Callback handler for baby role selection ──────────────────────────────────
+
+export async function handleBabyRoleCallback(ctx, role) {
+  const userId = ctx.from.id;
+  await upsertUser(userId, {
+    chat_id:    ctx.chat.id,
+    name:       ctx.from.first_name || 'Friend',
+    baby_role:  role,
+    onboarding: 'done',
+  });
+  await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+  return ctx.reply(
+    `✅ Wonderful! I'll send your daily plan at 7am every morning.\n\nJust message me what you've done and I'll update your record.\n\nTap /today to see today's tasks 🌿\n\nWhen your baby is born, use /newbaby to set up the baby log 📔`,
+    { parse_mode: 'Markdown' }
+  );
 }
 
 // ── Callback handler for mode selection ───────────────────────────────────────

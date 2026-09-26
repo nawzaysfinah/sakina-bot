@@ -21,10 +21,14 @@ import { formatDailyBriefing, getUpcomingVaccinations } from './services/content
 import { sendEpdsQuestion } from './handlers/message.js';
 import { Markup } from 'telegraf';
 
-let botInstance = null;
+let botInstance   = null;
+let babyLogRef    = null;
+let supabaseRef   = null;
 
-export function initScheduler(bot) {
+export function initScheduler(bot, { babyLog, supabase } = {}) {
   botInstance = bot;
+  babyLogRef  = babyLog  || null;
+  supabaseRef = supabase || null;
 
   // ── Hourly check — morning + evening per user's timezone ──────────────────
   cron.schedule('0 * * * *', hourlyCheck);
@@ -35,7 +39,21 @@ export function initScheduler(bot) {
   // ── Daily 6am SGT — EPDS + vaccination checks ─────────────────────────────
   cron.schedule('0 6 * * *', runDailyHealthChecks, { timezone: 'Asia/Singapore' });
 
-  console.log('📅 Scheduler started — hourly timezone-aware briefings, weekly Sunday summary, daily health checks');
+  // ── Daily 9pm SGT — baby log scan reminders ───────────────────────────────
+  cron.schedule('0 21 * * *', async () => {
+    if (!babyLogRef || !supabaseRef) return;
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+    try {
+      if (await babyLogRef.queries.claimJob('scan_reminder', today)) {
+        const { sendScanReminders } = await import('./babyLog/scheduler.js');
+        await sendScanReminders(botInstance, supabaseRef, babyLogRef.queries);
+      }
+    } catch (e) {
+      console.error('scan reminders failed', e);
+    }
+  }, { timezone: 'Asia/Singapore' });
+
+  console.log('📅 Scheduler started — hourly timezone-aware briefings, weekly Sunday summary, daily health checks, 9pm baby log reminders');
 }
 
 // ── Hourly dispatcher ─────────────────────────────────────────────────────────
@@ -48,7 +66,7 @@ async function hourlyCheck() {
     try {
       const localHour = getLocalHour(now, user.timezone || 'Asia/Singapore');
 
-      if (localHour === 8) {
+      if (localHour === 7) {
         await sendMorningBriefing(user);
       } else if (localHour === 19) {
         await sendEveningCheckin(user);

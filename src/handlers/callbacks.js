@@ -10,7 +10,7 @@ import {
   upsertMilestoneCompletion,
 } from '../db.js';
 import { formatDailyBriefing, getTumbuhContent, getNextWeekId } from '../services/content.js';
-import { handleModeCallback, handleDeliveryTypeCallback } from './onboarding.js';
+import { handleModeCallback, handleDeliveryTypeCallback, handleBabyRoleCallback } from './onboarding.js';
 import { sendDailyBriefing, handleEpdsAnswer } from './message.js';
 import { handleResetConfirm, handleTip } from './commands.js';
 import { Markup } from 'telegraf';
@@ -54,6 +54,12 @@ export async function handleCallback(ctx) {
     const deliveryType = data.replace('delivery_', '');
     await ctx.answerCbQuery();
     return handleDeliveryTypeCallback(ctx, deliveryType);
+  }
+
+  // ── Baby role (onboarding) ─────────────────────────────────────────────────
+  if (data.startsWith('role_')) {
+    await ctx.answerCbQuery();
+    return handleBabyRoleCallback(ctx, data.replace('role_', ''));
   }
 
   // ── Show today ─────────────────────────────────────────────────────────────
