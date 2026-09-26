@@ -32,8 +32,14 @@ export function registerPaperLog(bot, {
 
   async function babyFor(userId) {
     const { data } = await supabase.from('users')
-      .select('id, baby_name').eq('id', userId).maybeSingle();
-    return (data && data.baby_name) ? { id: data.id, name: data.baby_name } : null;
+      .select('id, baby_name, linked_user_id').eq('id', userId).maybeSingle();
+    if (!data) return null;
+    if (data.linked_user_id) {
+      const { data: owner } = await supabase.from('users')
+        .select('id, baby_name').eq('id', data.linked_user_id).maybeSingle();
+      return (owner && owner.baby_name) ? { id: owner.id, name: owner.baby_name } : null;
+    }
+    return data.baby_name ? { id: data.id, name: data.baby_name } : null;
   }
 
   async function openScan(chatId) {
@@ -88,14 +94,35 @@ export function registerPaperLog(bot, {
     return ctx.reply(`Created ${name}'s log 🤍\nYour partner can join with:\n/joinbaby ${join_code}`);
   });
 
-  // Partner linking is a future feature (dad role). For now, show a friendly placeholder.
   bot.command('joinbaby', async (ctx) => {
     const [, codeArg] = ctx.message.text.split(/\s+/);
     const code = (codeArg || '').toUpperCase();
+    if (!code) return ctx.reply('Usage: /joinbaby CODE\n\nAsk your partner for the code shown after /newbaby.');
+
     const { data: owner } = await supabase.from('users')
       .select('id, baby_name').eq('baby_join_code', code).maybeSingle();
-    if (!owner) return ctx.reply("That code didn't match. Check it and try again.");
-    return ctx.reply(`Partner linking is coming soon 🤍 When it's ready, you'll be connected to ${owner.baby_name}'s log.`);
+    if (!owner) return ctx.reply("That code didn't match. Double-check it and try again.");
+
+    const { data: me } = await supabase.from('users')
+      .select('mode').eq('id', ctx.from.id).maybeSingle();
+
+    const { error } = await supabase.from('users').update({
+      linked_user_id: owner.id,
+      baby_role: 'father',
+      onboarding: 'done',
+      chat_id: ctx.chat.id,
+      name: ctx.from.first_name || 'Partner',
+      ...(!me?.mode ? { mode: 'tumbuh' } : {}),
+    }).eq('id', ctx.from.id);
+
+    if (error) return ctx.reply("Sorry, I couldn't link you. Please try again.");
+    return ctx.reply(
+      `You're linked to *${owner.baby_name}'s* log 🤍\n\n`
+      + `Use /log to record feeds, sleep, and nappies.\n`
+      + `Use /dashboard to see the weekly summary.\n\n`
+      + `You'll get a baby brief in your morning message each day.`,
+      { parse_mode: 'Markdown' }
+    );
   });
 
   async function startScan(ctx, text) {

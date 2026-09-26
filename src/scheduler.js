@@ -121,6 +121,16 @@ async function sendMorningBriefing(user) {
       ]),
     }
   );
+
+  // Baby brief — sent as a follow-up message if this user is a caregiver
+  if (babyLogRef) {
+    try {
+      const { sendBabyBrief } = await import('./babyLog/brief.js');
+      await sendBabyBrief(botInstance, user, babyLogRef.queries);
+    } catch (e) {
+      console.error(`Baby brief error for user ${user.id}:`, e.message);
+    }
+  }
 }
 
 // ── Evening check-in ──────────────────────────────────────────────────────────

@@ -15,28 +15,59 @@ function createQueries(supabase) {
   }
 
   return {
-    /** Baby profile for this Telegram user, or null if not set up yet. */
+    /** Baby profile for this Telegram user, or null if not set up yet.
+     *  Follows linked_user_id so dads resolve to the primary caregiver's baby. */
     async babyFor(userId) {
       const { data, error } = await supabase.from('users')
-        .select('id, baby_name, baby_dob, baby_role')
+        .select('id, baby_name, baby_dob, baby_role, linked_user_id')
         .eq('id', userId)
         .maybeSingle();
       if (error) throw error;
-      if (!data || !data.baby_name) return null;
+      if (!data) return null;
+
+      if (data.linked_user_id) {
+        const { data: owner, error: e2 } = await supabase.from('users')
+          .select('id, baby_name, baby_dob')
+          .eq('id', data.linked_user_id)
+          .maybeSingle();
+        if (e2) throw e2;
+        if (!owner || !owner.baby_name) return null;
+        return { id: owner.id, name: owner.baby_name, birth_date: owner.baby_dob, role: data.baby_role || 'father' };
+      }
+
+      if (!data.baby_name) return null;
       return { id: data.id, name: data.baby_name, birth_date: data.baby_dob, role: data.baby_role || 'mother' };
     },
 
-    /** Every primary caregiver who has a baby set up, for scheduled messages. */
+    /** Every caregiver (primary + linked) who has a baby set up, for scheduled messages. */
     async allCaregivers() {
-      const { data, error } = await supabase.from('users')
-        .select('id, baby_name, baby_dob, baby_role, chat_id')
-        .not('baby_name', 'is', null);
-      if (error) throw error;
-      return (data || []).map(u => ({
+      const [{ data: primaries, error: e1 }, { data: linked, error: e2 }] = await Promise.all([
+        supabase.from('users').select('id, baby_name, baby_dob, baby_role, chat_id').not('baby_name', 'is', null),
+        supabase.from('users').select('id, baby_role, chat_id, linked_user_id').not('linked_user_id', 'is', null),
+      ]);
+      if (e1) throw e1;
+      if (e2) throw e2;
+
+      const primaryMap = Object.fromEntries((primaries || []).map(u => [u.id, u]));
+
+      const result = (primaries || []).map(u => ({
         telegram_user_id: u.chat_id || u.id,
         role: u.baby_role || 'mother',
         babies: { id: u.id, name: u.baby_name, birth_date: u.baby_dob },
       }));
+
+      for (const u of (linked || [])) {
+        const owner = primaryMap[u.linked_user_id];
+        if (owner) {
+          result.push({
+            telegram_user_id: u.chat_id || u.id,
+            role: u.baby_role || 'father',
+            babies: { id: owner.id, name: owner.baby_name, birth_date: owner.baby_dob },
+          });
+        }
+      }
+
+      return result;
     },
 
     status: (babyId) => rpc('baby_status', { p_baby: babyId }),
