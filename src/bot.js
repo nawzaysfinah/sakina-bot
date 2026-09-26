@@ -122,18 +122,21 @@ async function start() {
       if (process.env.MINIAPP_URL) console.log(`   Mini App: ${process.env.MINIAPP_URL}`);
     });
   } else {
-    // ── Polling mode (local dev) ─────────────────────────────────────────────
+    // ── Polling mode (local dev / no WEBHOOK_URL) ────────────────────────────
     await bot.launch();
-    console.log('🤖 Sakina bot started via polling (local dev mode)');
-    // Serve Mini App on a local HTTP server even in polling mode
-    if (babyLog.miniApp) {
-      http.createServer((req, res) => {
-        if (req.url === '/app' || req.url.startsWith('/app/')) {
-          return babyLog.miniApp(req, res, () => { res.statusCode = 404; res.end('Not found'); });
-        }
-        res.statusCode = 404; res.end('Not found');
-      }).listen(PORT, () => console.log(`   Mini App dev server: http://localhost:${PORT}/app/`));
-    }
+    console.log('🤖 Sakina bot started via polling (no WEBHOOK_URL set)');
+    // Always bind an HTTP server so Render (and any health checker) sees a live port.
+    http.createServer((req, res) => {
+      if (req.url === '/health') {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        return res.end(JSON.stringify({ ok: true }));
+      }
+      if (babyLog.miniApp && req.url && (req.url === '/app' || req.url.startsWith('/app/'))) {
+        return babyLog.miniApp(req, res, () => { res.statusCode = 404; res.end('Not found'); });
+      }
+      res.statusCode = 404; res.end('Not found');
+    }).listen(PORT, () => console.log(`   HTTP server on port ${PORT} (polling mode)`));
   }
 
   // Graceful shutdown
