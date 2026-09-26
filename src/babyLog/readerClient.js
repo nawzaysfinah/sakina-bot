@@ -3,11 +3,11 @@
 
 export class ReaderError extends Error {}
 
-export function createReaderClient({ url, key, timeoutMs = 60000 }) {
-  if (!url) throw new Error('PAPER_READER_URL is not set');
+export function createReaderClient({ url, key, timeoutMs = 60000 } = {}) {
   const headers = key ? { 'X-Reader-Key': key } : {};
 
   async function call(path, init) {
+    if (!url) throw new ReaderError('Paper scanning is not configured yet. Set PAPER_READER_URL to enable it.');
     const res = await fetch(url.replace(/\/$/, '') + path, {
       ...init,
       headers: { ...headers, ...(init.headers || {}) },
