@@ -65,6 +65,23 @@ function parseTimeStr(str) {
   return ts;
 }
 
+// ── Calendar-day helpers (no 7pm row boundary) ───────────────────────────────
+
+function currentSgtDate(now = new Date()) {
+  // Current calendar date in SGT — no 7pm shift, just the real date
+  return new Date(now.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+function dayBoundsUtc(dateStr) {
+  // UTC ISO strings for midnight-to-midnight on an SGT calendar day
+  // 00:00 SGT = UTC-8h from midnight UTC (SGT is UTC+8)
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return {
+    start: new Date(Date.UTC(y, m - 1, d, -8, 0, 0, 0)).toISOString(),
+    end:   new Date(Date.UTC(y, m - 1, d + 1, -8, 0, 0, 0)).toISOString(),
+  };
+}
+
 // ── Timezone-aware clock ──────────────────────────────────────────────────────
 
 function clockInTz(ts, tz = 'Asia/Singapore') {
@@ -79,9 +96,10 @@ function clockInTz(ts, tz = 'Asia/Singapore') {
 
 // ── Today's events display ────────────────────────────────────────────────────
 
-function formatTodayEvents(events, babyName, rowDate = currentRowDateStr(), now = new Date(), tz = 'Asia/Singapore') {
+function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = new Date(), tz = 'Asia/Singapore') {
+  const isToday = rowDate === currentSgtDate(now);
   if (!events?.length) {
-    const header = rowDate === currentRowDateStr() ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
+    const header = isToday ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
     return `${header}\n\nNothing logged yet.`;
   }
 
@@ -114,7 +132,7 @@ function formatTodayEvents(events, babyName, rowDate = currentRowDateStr(), now 
     return `\`${t}\`  ${label}`;
   });
 
-  const header = rowDate === currentRowDateStr() ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
+  const header = isToday ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
   return `${header}\n\n${lines.join('\n')}`;
 }
 
@@ -164,28 +182,28 @@ function eventDeleteLabel(e) {
   return `${e.kind} ${t}`;
 }
 
-function logsNavKeyboard(rowDate) {
-  const today = currentRowDateStr();
-  const prev  = addDays(rowDate, -1);
-  const next  = addDays(rowDate, 1);
+function logsNavKeyboard(dateStr) {
+  const today = currentSgtDate();
+  const prev  = addDays(dateStr, -1);
+  const next  = addDays(dateStr, 1);
   const row1  = [
     Markup.button.callback(`⬅️ ${dayLabel(prev).split(' ')[0]}`, `logs:date:${prev}`),
   ];
-  if (rowDate !== today) row1.push(Markup.button.callback('📋 Today', `logs:date:${today}`));
+  if (dateStr !== today) row1.push(Markup.button.callback('📋 Today', `logs:date:${today}`));
   if (next <= today)     row1.push(Markup.button.callback(`${dayLabel(next).split(' ')[0]} ➡️`, `logs:date:${next}`));
   return Markup.inlineKeyboard([
     row1,
     [Markup.button.callback('📊 7-day summary', 'logs:period:7'),
      Markup.button.callback('📊 14 days', 'logs:period:14')],
-    [Markup.button.callback('🗑️ Delete an event', `logs:delmode:${rowDate}`)],
+    [Markup.button.callback('🗑️ Delete an event', `logs:delmode:${dateStr}`)],
   ]);
 }
 
-function periodNavKeyboard(days) {
+function periodNavKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('7 days', 'logs:period:7'), Markup.button.callback('14 days', 'logs:period:14'),
      Markup.button.callback('30 days', 'logs:period:30')],
-    [Markup.button.callback('📋 Today', `logs:date:${currentRowDateStr()}`)],
+    [Markup.button.callback('📋 Today', `logs:date:${currentSgtDate()}`)],
   ]);
 }
 
@@ -307,16 +325,19 @@ export function registerTapLog(bot, { supabase, queries }) {
     return data?.timezone || 'Asia/Singapore';
   }
 
-  async function sendLogsView(ctx, baby, rowDate) {
+  async function sendLogsView(ctx, baby, dateStr) {
+    const { start, end } = dayBoundsUtc(dateStr);
     const [{ data: events }, tz] = await Promise.all([
       supabase.from('baby_events_effective')
         .select('kind, start_at, end_at, detail, source')
-        .eq('baby_id', baby.id).eq('row_date', rowDate)
+        .eq('baby_id', baby.id)
+        .gte('start_at', start)
+        .lt('start_at', end)
         .order('start_at', { ascending: true }),
       getUserTz(ctx.from.id),
     ]);
-    const text = formatTodayEvents(events, baby.name, rowDate, new Date(), tz);
-    const kb   = logsNavKeyboard(rowDate);
+    const text = formatTodayEvents(events, baby.name, dateStr, new Date(), tz);
+    const kb   = logsNavKeyboard(dateStr);
     return { text, kb };
   }
 
@@ -332,7 +353,7 @@ export function registerTapLog(bot, { supabase, queries }) {
   bot.command(['logs', 'dashboard'], async (ctx) => {
     const baby = await q.babyFor(ctx.from.id);
     if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD (or /joinbaby CODE).');
-    const { text, kb } = await sendLogsView(ctx, baby, currentRowDateStr());
+    const { text, kb } = await sendLogsView(ctx, baby, currentSgtDate());
     return ctx.reply(text, { parse_mode: 'Markdown', ...kb });
   });
 
@@ -368,12 +389,14 @@ export function registerTapLog(bot, { supabase, queries }) {
     await ctx.answerCbQuery();
 
     const rowDate = ctx.match[1];
+    const { start: dayStart, end: dayEnd } = dayBoundsUtc(rowDate);
     const { data: events } = await supabase.from('baby_events')
       .select('id, kind, start_at, end_at, detail')
-      .eq('baby_id', baby.id).eq('source', 'tap').eq('row_date', rowDate)
+      .eq('baby_id', baby.id).eq('source', 'tap')
+      .gte('start_at', dayStart).lt('start_at', dayEnd)
       .order('start_at', { ascending: true });
 
-    const today  = currentRowDateStr();
+    const today  = currentSgtDate();
     const header = rowDate === today ? `*${baby.name} today*` : `*${baby.name} — ${dayLabel(rowDate)}*`;
 
     if (!events?.length) {
@@ -578,11 +601,14 @@ export function registerTapLog(bot, { supabase, queries }) {
       return `Undone: ${made.kind} at ${clock(made.start_at)}`;
     },
     async history(ctx, baby) {
-      const today = currentRowDateStr();
+      const today         = currentSgtDate();
+      const { start, end } = dayBoundsUtc(today);
       const [{ data: events }, tz] = await Promise.all([
         supabase.from('baby_events_effective')
           .select('kind, start_at, end_at, detail, source')
-          .eq('baby_id', baby.id).eq('row_date', today)
+          .eq('baby_id', baby.id)
+          .gte('start_at', start)
+          .lt('start_at', end)
           .order('start_at', { ascending: true }),
         getUserTz(ctx.from.id),
       ]);
