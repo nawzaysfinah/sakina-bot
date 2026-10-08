@@ -256,7 +256,8 @@ function formulaAmountKeyboard() {
 
 function pastEventKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('🍼 Feed', 'tap:past:feed'), Markup.button.callback('😴 Asleep', 'tap:past:sleep')],
+    [Markup.button.callback('🍼 Feed', 'tap:past:feed'), Markup.button.callback('😴 Asleep', 'tap:past:sleep'),
+     Markup.button.callback('☀️ Awake', 'tap:past:wake')],
     [Markup.button.callback('💧 Wet',  'tap:past:wet'),  Markup.button.callback('💩 Dirty', 'tap:past:dirty'),
      Markup.button.callback('💧💩 Both', 'tap:past:both')],
     [Markup.button.callback('❌ Cancel', 'tap:back')],
@@ -529,6 +530,17 @@ export function registerTapLog(bot, { supabase, queries }) {
           if (error && error.code !== '23505') throw error;
           note = `😴 Asleep at ${clock(ts)}`;
         }
+      } else if (pending.kind === 'wake') {
+        const open = await openSleep(baby.id);
+        if (!open) {
+          note = 'No open sleep to close — tap 😴 Asleep first.';
+        } else {
+          const { error } = await supabase.from('baby_events')
+            .update({ end_at: ts.toISOString(), detail: { ...(open.detail || {}), ended_by: ctx.from.id } })
+            .eq('id', open.id);
+          if (error) throw error;
+          note = `☀️ Woke up at ${clock(ts)} (slept ${span(ts - new Date(open.start_at))})`;
+        }
       } else {
         const detailMap = {
           wet:   { wet: true },
@@ -684,6 +696,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     const promptMap  = {
       feed:  '_What time was the feed?_\nReply with e.g. `2:30pm` or `14:30`',
       sleep: '_What time did baby fall asleep?_\nReply with e.g. `9:30pm` or `21:30`',
+      wake:  '_What time did baby wake up?_\nReply with e.g. `9:30am` or `9:30`',
       wet:   '_What time was the wet nappy?_\nReply with e.g. `3pm` or `15:00`',
       dirty: '_What time was the dirty nappy?_\nReply with e.g. `3pm` or `15:00`',
       both:  '_What time was the nappy change?_\nReply with e.g. `3pm` or `15:00`',
