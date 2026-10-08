@@ -132,7 +132,20 @@ export function ageText(birthDate, now = new Date()) {
 
 export function statusLine(st, now = new Date()) {
   const parts = [];
-  if (st?.last_feed)   parts.push(`🍼 fed ${span(now - new Date(st.last_feed.start_at))} ago (${clock(st.last_feed.start_at)})`);
+  if (st?.last_feed) {
+    const fd = st.last_feed.detail;
+    let icon = '🍼', extra = '';
+    if (fd?.type === 'breast') {
+      icon = '🤱';
+      const side = fd.side === 'left' ? 'L' : fd.side === 'right' ? 'R' : fd.side === 'both' ? 'B' : '';
+      const dur  = fd.duration_min ? ` ${fd.duration_min}m` : '';
+      extra = (side || dur) ? ` (${side}${dur})` : '';
+    } else if (fd?.type === 'formula') {
+      icon = '🍶';
+      extra = fd.amount_ml ? ` (${fd.amount_ml}ml)` : '';
+    }
+    parts.push(`${icon} fed ${span(now - new Date(st.last_feed.start_at))} ago${extra} · ${clock(st.last_feed.start_at)}`);
+  }
   if (st?.sleep?.ongoing) parts.push(`😴 asleep for ${span(now - new Date(st.sleep.start_at))}`);
   else if (st?.sleep?.end_at) parts.push(`☀️ awake for ${span(now - new Date(st.sleep.end_at))}`);
   if (st?.last_diaper) {
