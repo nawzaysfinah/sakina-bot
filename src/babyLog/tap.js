@@ -65,16 +65,28 @@ function parseTimeStr(str) {
   return ts;
 }
 
+// ── Timezone-aware clock ──────────────────────────────────────────────────────
+
+function clockInTz(ts, tz = 'Asia/Singapore') {
+  try {
+    return new Date(ts).toLocaleString('en-SG', {
+      hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz,
+    }).toLowerCase().replace(/ /g, '');
+  } catch {
+    return clock(ts); // fallback to SGT if tz is invalid
+  }
+}
+
 // ── Today's events display ────────────────────────────────────────────────────
 
-function formatTodayEvents(events, babyName, rowDate = currentRowDateStr(), now = new Date()) {
+function formatTodayEvents(events, babyName, rowDate = currentRowDateStr(), now = new Date(), tz = 'Asia/Singapore') {
   if (!events?.length) {
     const header = rowDate === currentRowDateStr() ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
     return `${header}\n\nNothing logged yet.`;
   }
 
   const lines = events.map(e => {
-    const t = clock(e.start_at);
+    const t = clockInTz(e.start_at, tz);
     let label;
     if (e.kind === 'feed') {
       const d = e.detail;
@@ -290,12 +302,20 @@ export function registerTapLog(bot, { supabase, queries }) {
 
   // ── /logs — day view + navigation ─────────────────────────────────────────────
 
+  async function getUserTz(userId) {
+    const { data } = await supabase.from('users').select('timezone').eq('id', userId).maybeSingle();
+    return data?.timezone || 'Asia/Singapore';
+  }
+
   async function sendLogsView(ctx, baby, rowDate) {
-    const { data: events } = await supabase.from('baby_events_effective')
-      .select('kind, start_at, end_at, detail, source')
-      .eq('baby_id', baby.id).eq('row_date', rowDate)
-      .order('start_at', { ascending: true });
-    const text = formatTodayEvents(events, baby.name, rowDate);
+    const [{ data: events }, tz] = await Promise.all([
+      supabase.from('baby_events_effective')
+        .select('kind, start_at, end_at, detail, source')
+        .eq('baby_id', baby.id).eq('row_date', rowDate)
+        .order('start_at', { ascending: true }),
+      getUserTz(ctx.from.id),
+    ]);
+    const text = formatTodayEvents(events, baby.name, rowDate, new Date(), tz);
     const kb   = logsNavKeyboard(rowDate);
     return { text, kb };
   }
@@ -559,12 +579,15 @@ export function registerTapLog(bot, { supabase, queries }) {
     },
     async history(ctx, baby) {
       const today = currentRowDateStr();
-      const { data: events } = await supabase.from('baby_events_effective')
-        .select('kind, start_at, end_at, detail, source')
-        .eq('baby_id', baby.id).eq('row_date', today)
-        .order('start_at', { ascending: true });
+      const [{ data: events }, tz] = await Promise.all([
+        supabase.from('baby_events_effective')
+          .select('kind, start_at, end_at, detail, source')
+          .eq('baby_id', baby.id).eq('row_date', today)
+          .order('start_at', { ascending: true }),
+        getUserTz(ctx.from.id),
+      ]);
       await ctx.answerCbQuery();
-      const text = formatTodayEvents(events, baby.name);
+      const text = formatTodayEvents(events, baby.name, today, new Date(), tz);
       try {
         await ctx.editMessageText(text, {
           parse_mode: 'Markdown',
