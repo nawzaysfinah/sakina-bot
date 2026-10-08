@@ -19,6 +19,17 @@ const pendingRetro = new Map();
 
 const pendingInput = new Map();
 
+// ── Pending note text input ───────────────────────────────────────────────────
+// userId → { chatId, messageId, retroTs: Date|null, expiresAt }
+
+const pendingNote = new Map();
+
+function getPendingNote(userId) {
+  const p = pendingNote.get(userId);
+  if (!p || Date.now() > p.expiresAt) { pendingNote.delete(userId); return null; }
+  return p;
+}
+
 function getRetro(userId) {
   const p = pendingRetro.get(userId);
   if (!p || Date.now() > p.expiresAt) { pendingRetro.delete(userId); return null; }
@@ -126,6 +137,8 @@ function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = n
       const d = e.detail;
       const k = [d?.wet && 'wet', d?.dirty && 'dirty'].filter(Boolean).join('+');
       label = k === 'wet+dirty' ? '💧💩 Diaper' : k === 'wet' ? '💧 Wet' : '💩 Dirty';
+    } else if (e.kind === 'note') {
+      label = `📝 ${e.detail?.text || '(note)'}`;
     } else {
       label = e.kind;
     }
@@ -179,6 +192,10 @@ function eventDeleteLabel(e) {
     const icon = (d?.wet && d?.dirty) ? '💧💩' : d?.wet ? '💧' : '💩';
     return `${icon} ${t}`;
   }
+  if (e.kind === 'note') {
+    const snippet = e.detail?.text ? ` "${e.detail.text.slice(0, 30)}${e.detail.text.length > 30 ? '…' : ''}"` : '';
+    return `📝 ${t}${snippet}`;
+  }
   return `${e.kind} ${t}`;
 }
 
@@ -215,7 +232,8 @@ function keyboard() {
       Markup.button.callback('☀️ Awake', 'tap:wake')],
     [Markup.button.callback('💧 Wet', 'tap:wet'), Markup.button.callback('💩 Dirty', 'tap:dirty'),
       Markup.button.callback('💧💩 Both', 'tap:both')],
-    [Markup.button.callback('📋 Today', 'tap:history'), Markup.button.callback('⏰ Past event', 'tap:past')],
+    [Markup.button.callback('📋 Today', 'tap:history'), Markup.button.callback('⏰ Past event', 'tap:past'),
+      Markup.button.callback('📝 Note', 'tap:note')],
     [Markup.button.callback('↩️ Undo last', 'tap:undo'), Markup.button.callback('🔄', 'tap:refresh')],
   ]);
 }
@@ -260,7 +278,7 @@ function pastEventKeyboard() {
      Markup.button.callback('☀️ Awake', 'tap:past:wake')],
     [Markup.button.callback('💧 Wet',  'tap:past:wet'),  Markup.button.callback('💩 Dirty', 'tap:past:dirty'),
      Markup.button.callback('💧💩 Both', 'tap:past:both')],
-    [Markup.button.callback('❌ Cancel', 'tap:back')],
+    [Markup.button.callback('📝 Note', 'tap:past:note'), Markup.button.callback('❌ Cancel', 'tap:back')],
   ]);
 }
 
@@ -452,6 +470,28 @@ export function registerTapLog(bot, { supabase, queries }) {
     const text = ctx.message?.text?.trim() || '';
     if (text.startsWith('/')) return next(); // don't intercept commands
 
+    // ── Note text input ───────────────────────────────────────────────────────
+    const noteState = getPendingNote(ctx.from.id);
+    if (noteState) {
+      pendingNote.delete(ctx.from.id);
+      const baby = await q.babyFor(ctx.from.id);
+      if (!baby) return next();
+      const editLog = (msgText, kb) =>
+        ctx.telegram.editMessageText(noteState.chatId, noteState.messageId, undefined, msgText,
+          { parse_mode: 'Markdown', ...kb }).catch(() => {});
+      try {
+        await insertAt(baby, ctx, { kind: 'note', detail: { text } }, noteState.retroTs);
+        const ts  = noteState.retroTs ?? new Date();
+        const st  = await q.status(baby.id);
+        const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n✓ 📝 "${text}" at ${clock(ts)}`;
+        await editLog(msg, keyboard());
+      } catch (e) {
+        console.error('note log failed', e);
+        await ctx.reply("Sorry, that didn't save. Try again.");
+      }
+      return;
+    }
+
     // ── Custom value input (amount / duration) ────────────────────────────────
     const inp = getPendingInput(ctx.from.id);
     if (inp) {
@@ -515,6 +555,19 @@ export function registerTapLog(bot, { supabase, queries }) {
       const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n_What type of feed? (${clock(ts)})_`;
       await editLog(msg, feedTypeKeyboard());
       return; // don't call next()
+    }
+
+    if (pending.kind === 'note') {
+      // Time captured — now ask for the note text
+      pendingRetro.delete(ctx.from.id);
+      pendingNote.set(ctx.from.id, {
+        chatId: pending.chatId, messageId: pending.messageId,
+        retroTs: ts, expiresAt: Date.now() + RETRO_TTL_MS,
+      });
+      const st  = await q.status(baby.id);
+      const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n_Type your note for ${clock(ts)}:_`;
+      await editLog(msg, Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]));
+      return;
     }
 
     // Non-feed: log directly with the retro time
@@ -638,6 +691,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     },
     async back(ctx, baby) {
       pendingInput.delete(ctx.from.id);
+      pendingNote.delete(ctx.from.id);
       await ctx.answerCbQuery();
       const { text, kb } = await render(ctx, baby);
       try { await ctx.editMessageText(text, kb); } catch (e) {
@@ -648,6 +702,18 @@ export function registerTapLog(bot, { supabase, queries }) {
     async past(ctx, baby) {
       await ctx.answerCbQuery();
       await renderWithPrompt(ctx, baby, '_What did you want to log?_', pastEventKeyboard());
+      return null;
+    },
+    async note(ctx, baby) {
+      await ctx.answerCbQuery();
+      const chatId    = ctx.callbackQuery.message.chat.id;
+      const messageId = ctx.callbackQuery.message.message_id;
+      pendingNote.set(ctx.from.id, {
+        chatId, messageId, retroTs: null,
+        expiresAt: Date.now() + RETRO_TTL_MS,
+      });
+      await renderWithPrompt(ctx, baby, '_Type your note and send it:_',
+        Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]));
       return null;
     },
     refresh: async () => undefined,
@@ -700,6 +766,7 @@ export function registerTapLog(bot, { supabase, queries }) {
       wet:   '_What time was the wet nappy?_\nReply with e.g. `3pm` or `15:00`',
       dirty: '_What time was the dirty nappy?_\nReply with e.g. `3pm` or `15:00`',
       both:  '_What time was the nappy change?_\nReply with e.g. `3pm` or `15:00`',
+      note:  '_What time did this happen?_\nReply with e.g. `2:30pm` or `14:30`',
     };
 
     const prompt = promptMap[kind];
