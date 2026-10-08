@@ -46,7 +46,7 @@ function breastDurationKeyboard(side) {
 
 function formulaAmountKeyboard() {
   return Markup.inlineKeyboard([
-    [[30, 60, 90, 120].map(ml => Markup.button.callback(`${ml}ml`, `tap:feed:formula:${ml}`))],
+    [30, 60, 90, 120].map(ml => Markup.button.callback(`${ml}ml`, `tap:feed:formula:${ml}`)),
     [Markup.button.callback('⏭ Skip', 'tap:feed:formula:skip')],
   ]);
 }
