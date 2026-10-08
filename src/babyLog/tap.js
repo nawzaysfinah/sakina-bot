@@ -132,6 +132,26 @@ function formatPeriodSummary(rows, babyName, days) {
   return `*${babyName} — last ${days} days*\n\n${lines.join('\n')}${avgLine}`;
 }
 
+function eventDeleteLabel(e) {
+  const t = clock(e.start_at);
+  if (e.kind === 'feed') {
+    const d = e.detail;
+    if (d?.type === 'breast') {
+      const side = d.side === 'left' ? 'L' : d.side === 'right' ? 'R' : 'B';
+      return `🤱 ${t}${d.duration_min ? ` · ${d.duration_min}m` : ''} (${side})`;
+    }
+    if (d?.type === 'formula') return `🍶 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
+    return `🍼 ${t}`;
+  }
+  if (e.kind === 'sleep') return e.end_at ? `😴 ${t} (closed)` : `😴 ${t} (open)`;
+  if (e.kind === 'diaper') {
+    const d = e.detail;
+    const icon = (d?.wet && d?.dirty) ? '💧💩' : d?.wet ? '💧' : '💩';
+    return `${icon} ${t}`;
+  }
+  return `${e.kind} ${t}`;
+}
+
 function logsNavKeyboard(rowDate) {
   const today = currentRowDateStr();
   const prev  = addDays(rowDate, -1);
@@ -145,6 +165,7 @@ function logsNavKeyboard(rowDate) {
     row1,
     [Markup.button.callback('📊 7-day summary', 'logs:period:7'),
      Markup.button.callback('📊 14 days', 'logs:period:14')],
+    [Markup.button.callback('🗑️ Delete an event', `logs:delmode:${rowDate}`)],
   ]);
 }
 
@@ -317,6 +338,67 @@ export function registerTapLog(bot, { supabase, queries }) {
     } catch (e) {
       if (!/message is not modified/.test(e.description || e.message)) throw e;
     }
+  });
+
+  // ── Delete event ──────────────────────────────────────────────────────────────
+
+  bot.action(/^logs:delmode:(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return ctx.answerCbQuery('Set up a profile first with /newbaby');
+    await ctx.answerCbQuery();
+
+    const rowDate = ctx.match[1];
+    const { data: events } = await supabase.from('baby_events')
+      .select('id, kind, start_at, end_at, detail')
+      .eq('baby_id', baby.id).eq('source', 'tap').eq('row_date', rowDate)
+      .order('start_at', { ascending: true });
+
+    const today  = currentRowDateStr();
+    const header = rowDate === today ? `*${baby.name} today*` : `*${baby.name} — ${dayLabel(rowDate)}*`;
+
+    if (!events?.length) {
+      const kb = Markup.inlineKeyboard([[Markup.button.callback('← Back', `logs:date:${rowDate}`)]]);
+      try {
+        await ctx.editMessageText(`${header}\n\nNo tap-logged events to delete.\n_Events from paper scans cannot be deleted here._`,
+          { parse_mode: 'Markdown', ...kb });
+      } catch (e) { if (!/message is not modified/.test(e.description || e.message)) throw e; }
+      return;
+    }
+
+    const rows = events.map(e =>
+      [Markup.button.callback(eventDeleteLabel(e), `logs:del:${e.id}:${rowDate}`)]
+    );
+    rows.push([Markup.button.callback('← Back', `logs:date:${rowDate}`)]);
+
+    try {
+      await ctx.editMessageText(`${header}\n\n_Tap an event to delete it:_`,
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) });
+    } catch (e) { if (!/message is not modified/.test(e.description || e.message)) throw e; }
+  });
+
+  bot.action(/^logs:del:(\d+):(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return ctx.answerCbQuery('Set up a profile first with /newbaby');
+
+    const eventId = ctx.match[1];
+    const rowDate = ctx.match[2];
+
+    const { error } = await supabase.from('baby_events')
+      .delete()
+      .eq('id', eventId)
+      .eq('baby_id', baby.id) // ensures ownership
+      .eq('source', 'tap');
+
+    if (error) {
+      console.error('delete event failed', error);
+      return ctx.answerCbQuery("Couldn't delete that event. Try again.");
+    }
+
+    await ctx.answerCbQuery('Deleted');
+    const { text, kb } = await sendLogsView(ctx, baby, rowDate);
+    try {
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', ...kb });
+    } catch (e) { if (!/message is not modified/.test(e.description || e.message)) throw e; }
   });
 
   // ── Text handler for retro time input ─────────────────────────────────────────
