@@ -20,7 +20,6 @@
 //
 // Do NOT call babyLog.startJobs() — sakina-bot's own scheduler.js handles timing.
 
-import { Markup } from 'telegraf';
 import { registerPaperLog } from './paper.js';
 import { registerTapLog } from './tap.js';
 import { createQueries } from './query.js';
@@ -41,10 +40,7 @@ export function registerBabyLog(bot, {
   const paper = registerPaperLog(bot, { supabase, ...(reader ? { reader } : {}) });
   registerTapLog(bot, { supabase, queries });
 
-  if (miniAppUrl) {
-    bot.command('dashboard', (ctx) => ctx.reply('Your baby log, at a glance:',
-      Markup.inlineKeyboard([Markup.button.webApp('📊 Open dashboard', miniAppUrl)])));
-  }
+  // /dashboard and /logs are registered in tap.js (text-based day view + navigation)
 
   return {
     queries,
