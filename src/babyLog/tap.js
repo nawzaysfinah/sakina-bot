@@ -20,13 +20,24 @@ const pendingRetro = new Map();
 const pendingInput = new Map();
 
 // ── Pending note text input ───────────────────────────────────────────────────
-// userId → { chatId, messageId, retroTs: Date|null, expiresAt }
+// userId → { chatId, messageId, retroTs: Date|null, isPdQuestion?, expiresAt }
 
 const pendingNote = new Map();
 
 function getPendingNote(userId) {
   const p = pendingNote.get(userId);
   if (!p || Date.now() > p.expiresAt) { pendingNote.delete(userId); return null; }
+  return p;
+}
+
+// ── Pending "when?" gate ──────────────────────────────────────────────────────
+// userId → { kind, chatId, messageId, expiresAt }
+
+const pendingAction = new Map();
+
+function getPendingAction(userId) {
+  const p = pendingAction.get(userId);
+  if (!p || Date.now() > p.expiresAt) { pendingAction.delete(userId); return null; }
   return p;
 }
 
@@ -114,7 +125,7 @@ function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = n
     return `${header}\n\nNothing logged yet.`;
   }
 
-  const lines = events.map(e => {
+  const lines = events.filter(e => e.kind !== 'pd_question').map(e => {
     const t = clockInTz(e.start_at, tz);
     let label;
     if (e.kind === 'feed') {
@@ -232,9 +243,17 @@ function keyboard() {
       Markup.button.callback('☀️ Awake', 'tap:wake')],
     [Markup.button.callback('💧 Wet', 'tap:wet'), Markup.button.callback('💩 Dirty', 'tap:dirty'),
       Markup.button.callback('💧💩 Both', 'tap:both')],
-    [Markup.button.callback('📋 Today', 'tap:history'), Markup.button.callback('⏰ Past event', 'tap:past'),
-      Markup.button.callback('📝 Note', 'tap:note')],
+    [Markup.button.callback('📝 Note', 'tap:note'), Markup.button.callback('💊 PD', 'tap:pd'),
+      Markup.button.callback('📋 Today', 'tap:history')],
     [Markup.button.callback('↩️ Undo last', 'tap:undo'), Markup.button.callback('🔄', 'tap:refresh')],
+  ]);
+}
+
+function whenKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('⚡ Now', 'tap:when:now'),
+     Markup.button.callback('⏰ Enter time', 'tap:when:custom')],
+    [Markup.button.callback('❌ Cancel', 'tap:back')],
   ]);
 }
 
@@ -269,16 +288,6 @@ function formulaAmountKeyboard() {
     [90, 120].map(ml => Markup.button.callback(`${ml}ml`, `tap:feed:formula:${ml}`))
       .concat([Markup.button.callback('✏️ Other', 'tap:feed:formula:custom')]),
     [Markup.button.callback('⏭ Skip', 'tap:feed:formula:skip')],
-  ]);
-}
-
-function pastEventKeyboard() {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback('🍼 Feed', 'tap:past:feed'), Markup.button.callback('😴 Asleep', 'tap:past:sleep'),
-     Markup.button.callback('☀️ Awake', 'tap:past:wake')],
-    [Markup.button.callback('💧 Wet',  'tap:past:wet'),  Markup.button.callback('💩 Dirty', 'tap:past:dirty'),
-     Markup.button.callback('💧💩 Both', 'tap:past:both')],
-    [Markup.button.callback('📝 Note', 'tap:past:note'), Markup.button.callback('❌ Cancel', 'tap:back')],
   ]);
 }
 
@@ -412,6 +421,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     const { data: events } = await supabase.from('baby_events')
       .select('id, kind, start_at, end_at, detail')
       .eq('baby_id', baby.id).eq('source', 'tap')
+      .neq('kind', 'pd_question')
       .gte('start_at', dayStart).lt('start_at', dayEnd)
       .order('start_at', { ascending: true });
 
@@ -480,11 +490,17 @@ export function registerTapLog(bot, { supabase, queries }) {
         ctx.telegram.editMessageText(noteState.chatId, noteState.messageId, undefined, msgText,
           { parse_mode: 'Markdown', ...kb }).catch(() => {});
       try {
-        await insertAt(baby, ctx, { kind: 'note', detail: { text } }, noteState.retroTs);
-        const ts  = noteState.retroTs ?? new Date();
-        const st  = await q.status(baby.id);
-        const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n✓ 📝 "${text}" at ${clock(ts)}`;
-        await editLog(msg, keyboard());
+        if (noteState.isPdQuestion) {
+          await insertAt(baby, ctx, { kind: 'pd_question', detail: { question: text } }, null);
+          const { text: pdText, kb: pdKb } = await renderPdView(baby);
+          await editLog(pdText, pdKb);
+        } else {
+          await insertAt(baby, ctx, { kind: 'note', detail: { text } }, noteState.retroTs);
+          const ts  = noteState.retroTs ?? new Date();
+          const st  = await q.status(baby.id);
+          const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n✓ 📝 "${text}" at ${clock(ts)}`;
+          await editLog(msg, keyboard());
+        }
       } catch (e) {
         console.error('note log failed', e);
         await ctx.reply("Sorry, that didn't save. Try again.");
@@ -615,41 +631,39 @@ export function registerTapLog(bot, { supabase, queries }) {
 
   // ── Simple tap actions ────────────────────────────────────────────────────────
 
+  // All event-kind actions go through the "when?" gate first
+  function stageWhen(ctx, baby, kind) {
+    pendingRetro.delete(ctx.from.id);
+    pendingNote.delete(ctx.from.id);
+    pendingAction.delete(ctx.from.id);
+    const chatId = ctx.callbackQuery.message.chat.id;
+    const messageId = ctx.callbackQuery.message.message_id;
+    pendingAction.set(ctx.from.id, { kind, chatId, messageId, expiresAt: Date.now() + RETRO_TTL_MS });
+    return renderWithPrompt(ctx, baby, '_When did this happen?_', whenKeyboard());
+  }
+
   const actions = {
-    async feed(ctx, baby) {
-      pendingRetro.delete(ctx.from.id); // clear stale retro state on normal feed tap
+    async feed(ctx, baby)  { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'feed');  return null; },
+    async sleep(ctx, baby) { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'sleep'); return null; },
+    async wake(ctx, baby)  { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'wake');  return null; },
+    async wet(ctx, baby)   { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'wet');   return null; },
+    async dirty(ctx, baby) { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'dirty'); return null; },
+    async both(ctx, baby)  { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'both');  return null; },
+    async note(ctx, baby)  { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'note');  return null; },
+    async pd(ctx, baby) {
       await ctx.answerCbQuery();
-      await renderWithPrompt(ctx, baby, '_What type of feed?_', feedTypeKeyboard());
-      return null; // handled — don't call render() in outer handler
+      const { text, kb } = await renderPdView(baby);
+      try { await ctx.editMessageText(text, { parse_mode: 'Markdown', ...kb }); }
+      catch (e) { if (!/message is not modified/.test(e.description || e.message)) throw e; }
+      return null;
     },
-    async sleep(ctx, baby) {
-      pendingRetro.delete(ctx.from.id);
-      const open = await openSleep(baby.id);
-      if (open) return `Already asleep since ${clock(open.start_at)}`;
-      const { error } = await insert(baby, ctx, { kind: 'sleep', end_at: null });
-      if (error && error.code !== '23505') throw error;
-      return `Asleep from ${clock(new Date())}`;
-    },
-    async wake(ctx, baby) {
-      pendingRetro.delete(ctx.from.id);
-      const open = await openSleep(baby.id);
-      if (!open) return 'No sleep running. Tap 😴 when baby falls asleep next time.';
-      const end = new Date();
-      const { error } = await supabase.from('baby_events')
-        .update({ end_at: end.toISOString(), detail: { ...(open.detail || {}), ended_by: ctx.from.id } })
-        .eq('id', open.id);
-      if (error) throw error;
-      return `Slept ${span(end - new Date(open.start_at))}`;
-    },
-    wet:   (ctx, baby) => { pendingRetro.delete(ctx.from.id); return diaper(ctx, baby, { wet: true }); },
-    dirty: (ctx, baby) => { pendingRetro.delete(ctx.from.id); return diaper(ctx, baby, { dirty: true }); },
-    both:  (ctx, baby) => { pendingRetro.delete(ctx.from.id); return diaper(ctx, baby, { wet: true, dirty: true }); },
     async undo(ctx, baby) {
       pendingRetro.delete(ctx.from.id);
+      pendingAction.delete(ctx.from.id);
       const since = new Date(Date.now() - UNDO_MINUTES * 60e3).toISOString();
       const [{ data: made }, { data: woke }] = await Promise.all([
         supabase.from('baby_events').select('*').eq('baby_id', baby.id).eq('source', 'tap')
-          .eq('logged_by', ctx.from.id).gte('created_at', since)
+          .eq('logged_by', ctx.from.id).neq('kind', 'pd_question').gte('created_at', since)
           .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1).maybeSingle(),
         supabase.from('baby_events').select('*').eq('baby_id', baby.id).eq('source', 'tap')
           .eq('kind', 'sleep').eq('detail->>ended_by', String(ctx.from.id)).gte('end_at', since)
@@ -687,33 +701,17 @@ export function registerTapLog(bot, { supabase, queries }) {
       } catch (e) {
         if (!/message is not modified/.test(e.description || e.message)) throw e;
       }
-      return null; // handled
+      return null;
     },
     async back(ctx, baby) {
       pendingInput.delete(ctx.from.id);
       pendingNote.delete(ctx.from.id);
+      pendingAction.delete(ctx.from.id);
       await ctx.answerCbQuery();
       const { text, kb } = await render(ctx, baby);
       try { await ctx.editMessageText(text, kb); } catch (e) {
         if (!/message is not modified/.test(e.description || e.message)) throw e;
       }
-      return null;
-    },
-    async past(ctx, baby) {
-      await ctx.answerCbQuery();
-      await renderWithPrompt(ctx, baby, '_What did you want to log?_', pastEventKeyboard());
-      return null;
-    },
-    async note(ctx, baby) {
-      await ctx.answerCbQuery();
-      const chatId    = ctx.callbackQuery.message.chat.id;
-      const messageId = ctx.callbackQuery.message.message_id;
-      pendingNote.set(ctx.from.id, {
-        chatId, messageId, retroTs: null,
-        expiresAt: Date.now() + RETRO_TTL_MS,
-      });
-      await renderWithPrompt(ctx, baby, '_Type your note and send it:_',
-        Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]));
       return null;
     },
     refresh: async () => undefined,
@@ -748,36 +746,159 @@ export function registerTapLog(bot, { supabase, queries }) {
     }
   });
 
-  // ── Retro event type selection ────────────────────────────────────────────────
+  // ── PD questions view ─────────────────────────────────────────────────────────
 
-  bot.action(/^tap:past:(\w+)$/, async (ctx) => {
-    const kind = ctx.match[1];
+  async function renderPdView(baby) {
+    const { data: questions } = await supabase.from('baby_events')
+      .select('id, detail, start_at')
+      .eq('baby_id', baby.id)
+      .eq('kind', 'pd_question')
+      .eq('source', 'tap')
+      .order('start_at', { ascending: true });
+
+    let text;
+    if (!questions?.length) {
+      text = `*${baby.name} — Questions for PD*\n\nNo questions yet.\nTap the button below to add one.`;
+    } else {
+      const lines = questions.map((q, i) => `${i + 1}. ${q.detail?.question || '(question)'}`);
+      text = `*${baby.name} — Questions for PD*\n\n${lines.join('\n')}\n\n_Tap ✓ to mark a question as asked._`;
+    }
+
+    const qButtons = (questions || []).map((q, i) => [
+      Markup.button.callback(`✓ #${i + 1}`, `pd:done:${q.id}`),
+    ]);
+    const kb = Markup.inlineKeyboard([
+      ...qButtons,
+      [Markup.button.callback('📝 Add question', 'pd:add')],
+      [Markup.button.callback('← Back', 'tap:back')],
+    ]);
+    return { text, kb };
+  }
+
+  bot.command('pd', async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD (or /joinbaby CODE).');
+    const { text, kb } = await renderPdView(baby);
+    return ctx.reply(text, { parse_mode: 'Markdown', ...kb });
+  });
+
+  bot.action('pd:add', async (ctx) => {
     const baby = await q.babyFor(ctx.from.id);
     if (!baby) return ctx.answerCbQuery('Set up a profile first with /newbaby');
-
     await ctx.answerCbQuery();
+    const chatId = ctx.callbackQuery.message.chat.id;
+    const messageId = ctx.callbackQuery.message.message_id;
+    pendingNote.set(ctx.from.id, {
+      chatId, messageId, retroTs: null, isPdQuestion: true,
+      expiresAt: Date.now() + RETRO_TTL_MS,
+    });
+    const st = await q.status(baby.id);
+    const text = `${baby.name} right now\n\n${statusLine(st)}\n\n_Type your question for the PD appointment:_`;
+    try {
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]),
+      });
+    } catch (e) { if (!/message is not modified/.test(e.description || e.message)) throw e; }
+  });
 
-    const chatId     = ctx.callbackQuery.message.chat.id;
-    const messageId  = ctx.callbackQuery.message.message_id;
-    const promptMap  = {
-      feed:  '_What time was the feed?_\nReply with e.g. `2:30pm` or `14:30`',
-      sleep: '_What time did baby fall asleep?_\nReply with e.g. `9:30pm` or `21:30`',
-      wake:  '_What time did baby wake up?_\nReply with e.g. `9:30am` or `9:30`',
-      wet:   '_What time was the wet nappy?_\nReply with e.g. `3pm` or `15:00`',
-      dirty: '_What time was the dirty nappy?_\nReply with e.g. `3pm` or `15:00`',
-      both:  '_What time was the nappy change?_\nReply with e.g. `3pm` or `15:00`',
-      note:  '_What time did this happen?_\nReply with e.g. `2:30pm` or `14:30`',
-    };
+  bot.action(/^pd:done:(\d+)$/, async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return ctx.answerCbQuery('Set up a profile first with /newbaby');
+    await supabase.from('baby_events')
+      .delete().eq('id', ctx.match[1]).eq('baby_id', baby.id).eq('kind', 'pd_question');
+    await ctx.answerCbQuery('Marked as asked ✓');
+    const { text, kb } = await renderPdView(baby);
+    try { await ctx.editMessageText(text, { parse_mode: 'Markdown', ...kb }); }
+    catch (e) { if (!/message is not modified/.test(e.description || e.message)) throw e; }
+  });
 
-    const prompt = promptMap[kind];
-    if (!prompt) return; // unknown kind
+  // ── When? gate handlers ───────────────────────────────────────────────────────
+
+  const TIME_PROMPTS = {
+    feed:  '_What time was the feed?_\nReply with e.g. `2:30pm` or `14:30`',
+    sleep: '_What time did baby fall asleep?_\nReply with e.g. `9:30pm` or `21:30`',
+    wake:  '_What time did baby wake up?_\nReply with e.g. `9:30am` or `9:30`',
+    wet:   '_What time was the wet nappy?_\nReply with e.g. `3pm` or `15:00`',
+    dirty: '_What time was the dirty nappy?_\nReply with e.g. `3pm` or `15:00`',
+    both:  '_What time was the nappy change?_\nReply with e.g. `3pm` or `15:00`',
+    note:  '_What time did this happen?_\nReply with e.g. `2:30pm` or `14:30`',
+  };
+
+  bot.action('tap:when:now', async (ctx) => {
+    await ctx.answerCbQuery();
+    const pa = getPendingAction(ctx.from.id);
+    pendingAction.delete(ctx.from.id);
+    if (!pa) return;
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+
+    const { kind } = pa;
+    let note;
+    try {
+      if (kind === 'feed') {
+        await renderWithPrompt(ctx, baby, '_What type of feed?_', feedTypeKeyboard());
+        return;
+      }
+      if (kind === 'note') {
+        pendingNote.set(ctx.from.id, {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+          retroTs: null, expiresAt: Date.now() + RETRO_TTL_MS,
+        });
+        await renderWithPrompt(ctx, baby, '_Type your note and send it:_',
+          Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]));
+        return;
+      }
+      if (kind === 'sleep') {
+        const open = await openSleep(baby.id);
+        if (open) { note = `Already asleep since ${clock(open.start_at)}`; }
+        else {
+          const { error } = await insert(baby, ctx, { kind: 'sleep', end_at: null });
+          if (error && error.code !== '23505') throw error;
+          note = `Asleep from ${clock(new Date())}`;
+        }
+      } else if (kind === 'wake') {
+        const open = await openSleep(baby.id);
+        if (!open) { note = 'No sleep running. Tap 😴 when baby falls asleep.'; }
+        else {
+          const end = new Date();
+          const { error } = await supabase.from('baby_events')
+            .update({ end_at: end.toISOString(), detail: { ...(open.detail || {}), ended_by: ctx.from.id } })
+            .eq('id', open.id);
+          if (error) throw error;
+          note = `Slept ${span(end - new Date(open.start_at))}`;
+        }
+      } else if (kind === 'wet')   { note = await diaper(ctx, baby, { wet: true }); }
+      else if (kind === 'dirty')   { note = await diaper(ctx, baby, { dirty: true }); }
+      else if (kind === 'both')    { note = await diaper(ctx, baby, { wet: true, dirty: true }); }
+    } catch (e) {
+      console.error('tap:when:now failed', e);
+      return;
+    }
+
+    if (note !== undefined) {
+      const { text, kb } = await render(ctx, baby, note);
+      try { await ctx.editMessageText(text, kb); }
+      catch (e) { if (!/message is not modified/.test(e.description || e.message)) throw e; }
+    }
+  });
+
+  bot.action('tap:when:custom', async (ctx) => {
+    await ctx.answerCbQuery();
+    const pa = getPendingAction(ctx.from.id);
+    pendingAction.delete(ctx.from.id);
+    if (!pa) return;
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
 
     pendingRetro.set(ctx.from.id, {
-      kind, chatId, messageId,
+      kind: pa.kind, chatId: pa.chatId, messageId: pa.messageId,
       expiresAt: Date.now() + RETRO_TTL_MS,
     });
 
-    await renderWithPrompt(ctx, baby, prompt,
+    await renderWithPrompt(ctx, baby,
+      TIME_PROMPTS[pa.kind] || '_What time?\nReply with e.g. `2:30pm`_',
       Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]));
   });
 
