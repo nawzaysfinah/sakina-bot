@@ -7,7 +7,8 @@ import { Markup } from 'telegraf';
 import { clock, span, statusLine, currentRowDateStr, addDays, dayLabel, hrs } from './format.js';
 
 const UNDO_MINUTES  = 30;
-const RETRO_TTL_MS  = 3 * 60 * 1000; // 3 min to type a value before pending expires
+const RETRO_TTL_MS  = 3 * 60 * 1000;  // 3 min to tap/type a structured value before pending expires
+const NOTE_TTL_MS   = 15 * 60 * 1000; // 15 min for free-text note/question input (parents get interrupted)
 
 // ── Retro state ───────────────────────────────────────────────────────────────
 // userId → { kind, chatId, messageId, ts?, expiresAt }
@@ -578,7 +579,7 @@ export function registerTapLog(bot, { supabase, queries }) {
       pendingRetro.delete(ctx.from.id);
       pendingNote.set(ctx.from.id, {
         chatId: pending.chatId, messageId: pending.messageId,
-        retroTs: ts, expiresAt: Date.now() + RETRO_TTL_MS,
+        retroTs: ts, expiresAt: Date.now() + NOTE_TTL_MS,
       });
       const st  = await q.status(baby.id);
       const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n_Type your note for ${clock(ts)}:_`;
@@ -790,7 +791,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     const messageId = ctx.callbackQuery.message.message_id;
     pendingNote.set(ctx.from.id, {
       chatId, messageId, retroTs: null, isPdQuestion: true,
-      expiresAt: Date.now() + RETRO_TTL_MS,
+      expiresAt: Date.now() + NOTE_TTL_MS,
     });
     const st = await q.status(baby.id);
     const text = `${baby.name} right now\n\n${statusLine(st)}\n\n_Type your question for the PD appointment:_`;
@@ -844,7 +845,7 @@ export function registerTapLog(bot, { supabase, queries }) {
         pendingNote.set(ctx.from.id, {
           chatId: ctx.callbackQuery.message.chat.id,
           messageId: ctx.callbackQuery.message.message_id,
-          retroTs: null, expiresAt: Date.now() + RETRO_TTL_MS,
+          retroTs: null, expiresAt: Date.now() + NOTE_TTL_MS,
         });
         await renderWithPrompt(ctx, baby, '_Type your note and send it:_',
           Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]));

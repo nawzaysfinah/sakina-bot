@@ -56,6 +56,13 @@ export async function handleMessage(ctx) {
     return handleEpdsMessage(ctx, user, epdsSession, text);
   }
 
+  // ── Unknown slash commands — handled by their own bot.command() registrations
+  if (text.startsWith('/')) {
+    const cmd = text.slice(1).split(/[\s@]/)[0].toLowerCase();
+    const handled = new Set(['start', 'today', 'switch', 'progress', 'help', 'log', 'share', 'view']);
+    if (!handled.has(cmd)) return;
+  }
+
   // ── /today ─────────────────────────────────────────────────────────────────
   if (text === '/today' || text.toLowerCase() === 'today') {
     return sendDailyBriefing(ctx, user);
