@@ -16,7 +16,7 @@ const NOTE_TTL_MS   = 15 * 60 * 1000; // 15 min for free-text note/question inpu
 const pendingRetro = new Map();
 
 // ── Pending custom-value input ────────────────────────────────────────────────
-// userId → { type: 'formula_amount'|'breast_duration', side?, chatId, messageId, expiresAt }
+// userId → { type: 'formula_amount'|'breast_amount'|'latch_duration', side?, chatId, messageId, expiresAt }
 
 const pendingInput = new Map();
 
@@ -131,11 +131,13 @@ function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = n
     let label;
     if (e.kind === 'feed') {
       const d = e.detail;
-      if (d?.type === 'breast') {
+      if (d?.type === 'latch') {
         const side = d.side === 'left' ? 'L' : d.side === 'right' ? 'R' : 'B';
-        label = `🤱 Feed (${side}${d.duration_min ? ` ${d.duration_min}m` : ''})`;
+        label = `🤱 Latch (${side}${d.duration_min ? ` ${d.duration_min}m` : ''})`;
+      } else if (d?.type === 'breast') {
+        label = `🍼 Breast${d.amount_ml ? ` (${d.amount_ml}ml)` : ''}`;
       } else if (d?.type === 'formula') {
-        label = `🍶 Feed${d.amount_ml ? ` (${d.amount_ml}ml)` : ''}`;
+        label = `🍶 Formula${d.amount_ml ? ` (${d.amount_ml}ml)` : ''}`;
       } else {
         label = '🍼 Feed';
       }
@@ -191,10 +193,11 @@ function eventDeleteLabel(e) {
   const t = clock(e.start_at);
   if (e.kind === 'feed') {
     const d = e.detail;
-    if (d?.type === 'breast') {
+    if (d?.type === 'latch') {
       const side = d.side === 'left' ? 'L' : d.side === 'right' ? 'R' : 'B';
       return `🤱 ${t}${d.duration_min ? ` · ${d.duration_min}m` : ''} (${side})`;
     }
+    if (d?.type === 'breast') return `🍼 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''} (BM)`;
     if (d?.type === 'formula') return `🍶 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
     return `🍼 ${t}`;
   }
@@ -260,26 +263,36 @@ function whenKeyboard() {
 
 function feedTypeKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('🤱 Breast', 'tap:feed:breast'),
+    [Markup.button.callback('🤱 Latch',   'tap:feed:latch'),
+     Markup.button.callback('🍼 Breast',  'tap:feed:breast'),
      Markup.button.callback('🍶 Formula', 'tap:feed:formula')],
     [Markup.button.callback('⏭ Skip', 'tap:feed:skip')],
   ]);
 }
 
-function breastSideKeyboard() {
+function latchSideKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('⬅️ Left',  'tap:feed:breast:L'),
-     Markup.button.callback('➡️ Right', 'tap:feed:breast:R'),
-     Markup.button.callback('↔️ Both',  'tap:feed:breast:B')],
-    [Markup.button.callback('⏭ Skip', 'tap:feed:breast:skip')],
+    [Markup.button.callback('⬅️ Left',  'tap:feed:latch:L'),
+     Markup.button.callback('➡️ Right', 'tap:feed:latch:R'),
+     Markup.button.callback('↔️ Both',  'tap:feed:latch:B')],
+    [Markup.button.callback('⏭ Skip', 'tap:feed:latch:skip')],
   ]);
 }
 
-function breastDurationKeyboard(side) {
+function latchDurationKeyboard(side) {
   return Markup.inlineKeyboard([
-    [5, 10, 15, 20, 30].map(d => Markup.button.callback(`${d}m`, `tap:feed:breast:${side}:${d}`)),
-    [Markup.button.callback('✏️ Other', `tap:feed:breast:${side}:custom`),
-     Markup.button.callback('⏭ Skip', `tap:feed:breast:${side}:skip`)],
+    [5, 10, 15, 20, 30].map(d => Markup.button.callback(`${d}m`, `tap:feed:latch:${side}:${d}`)),
+    [Markup.button.callback('✏️ Other', `tap:feed:latch:${side}:custom`),
+     Markup.button.callback('⏭ Skip', `tap:feed:latch:${side}:skip`)],
+  ]);
+}
+
+function breastAmountKeyboard() {
+  return Markup.inlineKeyboard([
+    [10, 15, 30, 60].map(ml => Markup.button.callback(`${ml}ml`, `tap:feed:breast:${ml}`)),
+    [90, 120].map(ml => Markup.button.callback(`${ml}ml`, `tap:feed:breast:${ml}`))
+      .concat([Markup.button.callback('✏️ Other', 'tap:feed:breast:custom')]),
+    [Markup.button.callback('⏭ Skip', 'tap:feed:breast:skip')],
   ]);
 }
 
@@ -529,10 +542,14 @@ export function registerTapLog(bot, { supabase, queries }) {
         if (inp.type === 'formula_amount') {
           detail = { type: 'formula', amount_ml: num };
           note   = `🍶 ${num}ml at ${clock(retroTs ?? new Date())}`;
+        } else if (inp.type === 'breast_amount') {
+          detail = { type: 'breast', amount_ml: num };
+          note   = `🍼 ${num}ml (breast) at ${clock(retroTs ?? new Date())}`;
         } else {
-          const sideWord = inp.side === 'L' ? 'left' : inp.side === 'R' ? 'right' : 'both';
+          // latch_duration
+          const sideWord  = inp.side === 'L' ? 'left' : inp.side === 'R' ? 'right' : 'both';
           const sideLabel = inp.side === 'B' ? 'Both' : inp.side === 'L' ? 'Left' : 'Right';
-          detail = { type: 'breast', side: sideWord, duration_min: num };
+          detail = { type: 'latch', side: sideWord, duration_min: num };
           note   = `🤱 ${sideLabel} · ${num}m at ${clock(retroTs ?? new Date())}`;
         }
         await logFeed(ctx, baby, detail, retroTs);
@@ -931,54 +948,81 @@ export function registerTapLog(bot, { supabase, queries }) {
         return ctx.editMessageText(text, kb);
       }
 
-      // ── breast ───────────────────────────────────────────────────────────────
-      if (parts[0] === 'breast') {
+      // ── latch (from breast; measured in minutes) ─────────────────────────────
+      if (parts[0] === 'latch') {
         if (!parts[1]) {
-          // Show side keyboard
           await ctx.answerCbQuery();
-          return renderWithPrompt(ctx, baby, '_Breast — which side?_', breastSideKeyboard());
+          return renderWithPrompt(ctx, baby, '_Latch — which side?_', latchSideKeyboard());
         }
 
         const side = parts[1]; // 'L' | 'R' | 'B' | 'skip'
 
         if (side === 'skip') {
           const ts   = consumeRetroTime(ctx.from.id);
-          await logFeed(ctx, baby, { type: 'breast' }, ts);
-          const note = `🤱 Breast feed at ${clock(ts ?? new Date())}`;
+          await logFeed(ctx, baby, { type: 'latch' }, ts);
+          const note = `🤱 Latch at ${clock(ts ?? new Date())}`;
           await ctx.answerCbQuery(note);
           const { text, kb } = await render(ctx, baby, note);
           return ctx.editMessageText(text, kb);
         }
 
         if (!parts[2]) {
-          // Show duration keyboard
           await ctx.answerCbQuery();
           const sLabel = side === 'L' ? 'Left' : side === 'R' ? 'Right' : 'Both';
-          return renderWithPrompt(ctx, baby, `_${sLabel} breast — how long?_`, breastDurationKeyboard(side));
+          return renderWithPrompt(ctx, baby, `_${sLabel} latch — how long?_`, latchDurationKeyboard(side));
         }
 
         if (parts[2] === 'custom') {
-          // Ask user to type a duration
           await ctx.answerCbQuery();
           pendingInput.set(ctx.from.id, {
-            type: 'breast_duration', side,
+            type: 'latch_duration', side,
             chatId: ctx.callbackQuery.message.chat.id,
             messageId: ctx.callbackQuery.message.message_id,
             expiresAt: Date.now() + RETRO_TTL_MS,
           });
           const sLabel = side === 'L' ? 'Left' : side === 'R' ? 'Right' : 'Both';
-          return renderWithPrompt(ctx, baby, `_${sLabel} breast — how many minutes?_\nType a number e.g. \`25\``,
+          return renderWithPrompt(ctx, baby, `_${sLabel} latch — how many minutes?_\nType a number e.g. \`25\``,
             Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]));
         }
 
-        // Log breast with side + optional duration
-        const dur      = parts[2]; // number or 'skip'
-        const sideWord = side === 'L' ? 'left' : side === 'R' ? 'right' : 'both';
-        const detail   = { type: 'breast', side: sideWord, ...(dur !== 'skip' ? { duration_min: +dur } : {}) };
-        const ts       = consumeRetroTime(ctx.from.id);
+        const dur       = parts[2]; // number or 'skip'
+        const sideWord  = side === 'L' ? 'left' : side === 'R' ? 'right' : 'both';
+        const detail    = { type: 'latch', side: sideWord, ...(dur !== 'skip' ? { duration_min: +dur } : {}) };
+        const ts        = consumeRetroTime(ctx.from.id);
         await logFeed(ctx, baby, detail, ts);
         const sideShort = side === 'B' ? 'Both' : side === 'L' ? 'Left' : 'Right';
         const note      = `🤱 ${sideShort}${dur !== 'skip' ? ` · ${dur}m` : ''} at ${clock(ts ?? new Date())}`;
+        await ctx.answerCbQuery(note);
+        const { text, kb } = await render(ctx, baby, note);
+        return ctx.editMessageText(text, kb);
+      }
+
+      // ── breast (expressed/reheated; measured in ml) ───────────────────────────
+      if (parts[0] === 'breast') {
+        if (!parts[1]) {
+          await ctx.answerCbQuery();
+          return renderWithPrompt(ctx, baby, '_Breast milk — how much?_', breastAmountKeyboard());
+        }
+
+        if (parts[1] === 'custom') {
+          await ctx.answerCbQuery();
+          pendingInput.set(ctx.from.id, {
+            type: 'breast_amount',
+            chatId: ctx.callbackQuery.message.chat.id,
+            messageId: ctx.callbackQuery.message.message_id,
+            expiresAt: Date.now() + RETRO_TTL_MS,
+          });
+          return renderWithPrompt(ctx, baby, '_Breast milk — how much? Type amount in ml e.g. `45`_',
+            Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]));
+        }
+
+        const amount = parts[1]; // number or 'skip'
+        const detail = { type: 'breast', ...(amount !== 'skip' ? { amount_ml: +amount } : {}) };
+        const ts     = consumeRetroTime(ctx.from.id);
+        await logFeed(ctx, baby, detail, ts);
+        const note   = amount !== 'skip'
+          ? `🍼 ${amount}ml (breast) at ${clock(ts ?? new Date())}`
+          : `🍼 Breast milk at ${clock(ts ?? new Date())}`;
         await ctx.answerCbQuery(note);
         const { text, kb } = await render(ctx, baby, note);
         return ctx.editMessageText(text, kb);

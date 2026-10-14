@@ -135,11 +135,14 @@ export function statusLine(st, now = new Date()) {
   if (st?.last_feed) {
     const fd = st.last_feed.detail;
     let icon = '🍼', extra = '';
-    if (fd?.type === 'breast') {
+    if (fd?.type === 'latch') {
       icon = '🤱';
       const side = fd.side === 'left' ? 'L' : fd.side === 'right' ? 'R' : fd.side === 'both' ? 'B' : '';
       const dur  = fd.duration_min ? ` ${fd.duration_min}m` : '';
       extra = (side || dur) ? ` (${side}${dur})` : '';
+    } else if (fd?.type === 'breast') {
+      icon = '🍼';
+      extra = fd.amount_ml ? ` (${fd.amount_ml}ml BM)` : ' (BM)';
     } else if (fd?.type === 'formula') {
       icon = '🍶';
       extra = fd.amount_ml ? ` (${fd.amount_ml}ml)` : '';
