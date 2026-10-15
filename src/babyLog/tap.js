@@ -4,7 +4,8 @@
 // automatically (baby_events_effective view), so nothing is double counted.
 
 import { Markup } from 'telegraf';
-import { clock, span, statusLine, currentRowDateStr, addDays, dayLabel, hrs } from './format.js';
+import { clock, span, statusLine, nightStatusLine, currentRowDateStr, addDays, dayLabel, hrs } from './format.js';
+import { setFeedReminder, clearFeedReminder, getFeedReminder } from './feedReminder.js';
 
 const UNDO_MINUTES  = 30;
 const RETRO_TTL_MS  = 3 * 60 * 1000;  // 3 min to tap/type a structured value before pending expires
@@ -24,6 +25,10 @@ const pendingInput = new Map();
 // userId → { chatId, messageId, retroTs: Date|null, isPdQuestion?, expiresAt }
 
 const pendingNote = new Map();
+
+// ── Last-feed detail for "repeat" smart default ───────────────────────────────
+// userId → { detail, retroTs? } — short-lived, cleared when feed is logged or cancelled
+const pendingFeedRepeat = new Map();
 
 function getPendingNote(userId) {
   const p = pendingNote.get(userId);
@@ -248,8 +253,21 @@ function keyboard() {
       Markup.button.callback('💧💩 Both', 'tap:both')],
     [Markup.button.callback('📝 Note', 'tap:note'), Markup.button.callback('💊 PD', 'tap:pd'),
       Markup.button.callback('📋 Today', 'tap:history')],
-    [Markup.button.callback('↩️ Undo last', 'tap:undo'), Markup.button.callback('🔄', 'tap:refresh')],
+    [Markup.button.callback('↩️ Undo last', 'tap:undo'), Markup.button.callback('⏰', 'tap:remind'),
+      Markup.button.callback('🔄', 'tap:refresh')],
   ]);
+}
+
+function remindKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('2h', 'tap:remind:2'), Markup.button.callback('3h', 'tap:remind:3'),
+     Markup.button.callback('4h', 'tap:remind:4'), Markup.button.callback('❌ Off', 'tap:remind:off')],
+  ]);
+}
+
+function isSgtNight(now = new Date()) {
+  const h = Number(new Intl.DateTimeFormat('en-SG', { timeZone: 'Asia/Singapore', hour: 'numeric', hour12: false }).format(now));
+  return h >= 22 || h < 6;
 }
 
 function whenKeyboard() {
@@ -260,13 +278,28 @@ function whenKeyboard() {
   ]);
 }
 
-function feedTypeKeyboard() {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback('🤱 Latch',   'tap:feed:latch'),
-     Markup.button.callback('🍼 Breast',  'tap:feed:breast'),
-     Markup.button.callback('🍶 Formula', 'tap:feed:formula')],
-    [Markup.button.callback('⏭ Skip', 'tap:feed:skip')],
+function feedRepeatLabel(d) {
+  if (!d) return null;
+  if (d.type === 'latch') {
+    const s = d.side === 'left' ? 'L' : d.side === 'right' ? 'R' : d.side === 'both' ? 'B' : '';
+    return `🤱 Latch${s ? ' ' + s : ''}${d.duration_min ? ' ' + d.duration_min + 'm' : ''}`;
+  }
+  if (d.type === 'breast') return `🍼 Breast${d.amount_ml ? ' ' + d.amount_ml + 'ml' : ''}`;
+  if (d.type === 'formula') return `🍶 Formula${d.amount_ml ? ' ' + d.amount_ml + 'ml' : ''}`;
+  return null;
+}
+
+function feedTypeKeyboard(lastFeedDetail = null) {
+  const rows = [];
+  const label = feedRepeatLabel(lastFeedDetail);
+  if (label) rows.push([Markup.button.callback(`↩️ Same: ${label}`, 'tap:feed:repeat')]);
+  rows.push([
+    Markup.button.callback('🤱 Latch',   'tap:feed:latch'),
+    Markup.button.callback('🍼 Breast',  'tap:feed:breast'),
+    Markup.button.callback('🍶 Formula', 'tap:feed:formula'),
   ]);
+  rows.push([Markup.button.callback('⏭ Skip', 'tap:feed:skip')]);
+  return Markup.inlineKeyboard(rows);
 }
 
 function latchSideKeyboard() {
@@ -313,13 +346,17 @@ export function registerTapLog(bot, { supabase, queries }) {
 
   async function render(ctx, baby, note) {
     const st   = await q.status(baby.id);
-    const text = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}${note ? `\n\n✓ ${note}` : ''}`;
+    const now  = new Date();
+    const sl   = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date);
+    const text = `${baby.name} right now\n\n${sl}${note ? `\n\n✓ ${note}` : ''}`;
     return { text, kb: keyboard() };
   }
 
   async function renderWithPrompt(ctx, baby, prompt, kb) {
-    const st = await q.status(baby.id);
-    const text = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}\n\n${prompt}`;
+    const st  = await q.status(baby.id);
+    const now = new Date();
+    const sl  = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date);
+    const text = `${baby.name} right now\n\n${sl}\n\n${prompt}`;
     try {
       await ctx.editMessageText(text, { parse_mode: 'Markdown', ...kb });
     } catch (e) {
@@ -349,6 +386,13 @@ export function registerTapLog(bot, { supabase, queries }) {
     const { data } = await supabase.from('baby_events').select('*')
       .eq('baby_id', babyId).eq('kind', 'sleep').eq('source', 'tap').is('end_at', null).maybeSingle();
     return data;
+  }
+
+  async function lastFeedDetail(babyId) {
+    const { data } = await supabase.from('baby_events')
+      .select('detail').eq('baby_id', babyId).eq('kind', 'feed').eq('source', 'tap')
+      .not('detail', 'is', null).order('start_at', { ascending: false }).limit(1).maybeSingle();
+    return data?.detail ?? null;
   }
 
   async function closeSleep(babyId, ts = new Date()) {
@@ -596,9 +640,13 @@ export function registerTapLog(bot, { supabase, queries }) {
     if (pending.kind === 'feed') {
       // Store the time, then show feed type keyboard via the stored log message
       pendingRetro.set(ctx.from.id, { ...pending, ts, expiresAt: Date.now() + RETRO_TTL_MS });
+      const last = await lastFeedDetail(baby.id);
+      if (last) pendingFeedRepeat.set(ctx.from.id, { detail: last, retroTs: ts });
       const st  = await q.status(baby.id);
-      const msg = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}\n\n_What type of feed? (${clock(ts)})_`;
-      await editLog(msg, feedTypeKeyboard());
+      const now2 = new Date();
+      const sl2  = isSgtNight(now2) ? nightStatusLine(st, now2, baby.birth_date) : statusLine(st, now2, baby.birth_date);
+      const msg = `${baby.name} right now\n\n${sl2}\n\n_What type of feed? (${clock(ts)})_`;
+      await editLog(msg, feedTypeKeyboard(last));
       return; // don't call next()
     }
 
@@ -664,6 +712,15 @@ export function registerTapLog(bot, { supabase, queries }) {
   const actions = {
     async feed(ctx, baby)  { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'feed');  return null; },
     async sleep(ctx, baby) { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'sleep'); return null; },
+    async remind(ctx, baby) {
+      await ctx.answerCbQuery();
+      const existing = getFeedReminder(ctx.from.id);
+      const prompt   = existing
+        ? `_Reminder set for ${clock(existing.remindAt)} — change or cancel:_`
+        : '_Remind me for next feed in:_';
+      await renderWithPrompt(ctx, baby, prompt, remindKeyboard());
+      return null;
+    },
     async wet(ctx, baby)   { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'wet');   return null; },
     async dirty(ctx, baby) { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'dirty'); return null; },
     async both(ctx, baby)  { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'both');  return null; },
@@ -856,7 +913,9 @@ export function registerTapLog(bot, { supabase, queries }) {
     let note;
     try {
       if (kind === 'feed') {
-        await renderWithPrompt(ctx, baby, '_What type of feed?_', feedTypeKeyboard());
+        const last = await lastFeedDetail(baby.id);
+        if (last) pendingFeedRepeat.set(ctx.from.id, { detail: last, retroTs: null });
+        await renderWithPrompt(ctx, baby, '_What type of feed?_', feedTypeKeyboard(last));
         return;
       }
       if (kind === 'note') {
@@ -928,6 +987,20 @@ export function registerTapLog(bot, { supabase, queries }) {
     const retroTs  = parts[parts.length - 1] === 'final' ? null : null; // consumed below at log step
 
     try {
+      // ── repeat → re-log the previous feed detail unchanged ───────────────────
+      if (parts[0] === 'repeat') {
+        const stored = pendingFeedRepeat.get(ctx.from.id);
+        pendingFeedRepeat.delete(ctx.from.id);
+        const detail = stored?.detail ?? {};
+        const ts     = stored?.retroTs ?? consumeRetroTime(ctx.from.id);
+        await logFeed(ctx, baby, detail, ts);
+        const label  = feedRepeatLabel(detail) ?? 'Feed';
+        const note   = `${label} at ${clock(ts ?? new Date())}`;
+        await ctx.answerCbQuery(note);
+        const { text, kb } = await render(ctx, baby, note);
+        return ctx.editMessageText(text, kb);
+      }
+
       // ── skip → plain feed ────────────────────────────────────────────────────
       if (parts[0] === 'skip') {
         const ts   = consumeRetroTime(ctx.from.id);
@@ -1052,5 +1125,70 @@ export function registerTapLog(bot, { supabase, queries }) {
       console.error('tap feed detail failed', e);
       return ctx.answerCbQuery("Sorry, that didn't save. Try again?");
     }
+  });
+
+  // ── Feed interval reminder ────────────────────────────────────────────────────
+
+  bot.action(/^tap:remind:(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    const h = ctx.match[1];
+    if (h === 'off') {
+      clearFeedReminder(ctx.from.id);
+      const { text, kb } = await render(ctx, baby, 'Reminder cancelled');
+      try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
+      return;
+    }
+    const hours    = parseInt(h, 10);
+    const remindAt = new Date(Date.now() + hours * 3600 * 1000);
+    setFeedReminder(ctx.from.id, remindAt, baby.name);
+    const { text, kb } = await render(ctx, baby, `⏰ Reminder set for ${clock(remindAt)}`);
+    try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
+  });
+
+  // ── /weight command ───────────────────────────────────────────────────────────
+
+  bot.command('weight', async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+    const raw = ctx.message.text.replace(/^\/weight\s*/i, '').trim();
+    const kg  = raw ? parseFloat(raw.replace(/kg/i, '').trim()) : NaN;
+    if (!raw || isNaN(kg) || kg <= 0 || kg > 30) {
+      const { data: recent } = await supabase.from('baby_events')
+        .select('start_at, detail').eq('baby_id', baby.id).eq('kind', 'note')
+        .eq('detail->>type', 'weight').order('start_at', { ascending: false }).limit(5);
+      const lines = (recent || []).map(e => `${clock(e.start_at)}  ${e.detail.kg}kg`);
+      const history = lines.length ? `\n\n_Recent weights:_\n${lines.join('\n')}` : '';
+      return ctx.reply(`_Usage: /weight 3.65_\n\nSend the weight in kg (e.g. \`3.65\` or \`3.65kg\`).${history}`, { parse_mode: 'Markdown' });
+    }
+    await supabase.from('baby_events').insert({
+      baby_id: baby.id, source: 'tap', logged_by: ctx.from.id,
+      kind: 'note', start_at: new Date().toISOString(),
+      detail: { type: 'weight', kg: +kg.toFixed(3) },
+    });
+    return ctx.reply(`⚖️ *${kg}kg* logged for ${baby.name}.`, { parse_mode: 'Markdown' });
+  });
+
+  // ── /milestone command ────────────────────────────────────────────────────────
+
+  bot.command('milestone', async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+    const text = ctx.message.text.replace(/^\/milestone\s*/i, '').trim();
+    if (!text) {
+      const { data: recent } = await supabase.from('baby_events')
+        .select('start_at, detail').eq('baby_id', baby.id).eq('kind', 'note')
+        .eq('detail->>type', 'milestone').order('start_at', { ascending: false }).limit(10);
+      const lines = (recent || []).map((e, i) => `${i + 1}. ${e.detail.text} _(${clock(e.start_at)})_`);
+      const list  = lines.length ? lines.join('\n') : '_None yet._';
+      return ctx.reply(`*${baby.name} — milestones*\n\n${list}\n\n_Add one: /milestone First smile_`, { parse_mode: 'Markdown' });
+    }
+    await supabase.from('baby_events').insert({
+      baby_id: baby.id, source: 'tap', logged_by: ctx.from.id,
+      kind: 'note', start_at: new Date().toISOString(),
+      detail: { type: 'milestone', text },
+    });
+    return ctx.reply(`🌟 *"${text}"* saved for ${baby.name}!`, { parse_mode: 'Markdown' });
   });
 }

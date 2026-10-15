@@ -158,21 +158,44 @@ export function statusLine(st, now = new Date(), birthDate = null) {
 
   const statusText = parts.length ? parts.join('\n') : 'Nothing logged yet today.';
 
-  // Newborn feeding warning — show when < 14 days old and feed overdue
   if (birthDate) {
     const ageDays = (now - new Date(birthDate)) / 86400000;
     if (ageDays <= 14) {
-      const sinceLastFeed = st?.last_feed
-        ? now - new Date(st.last_feed.start_at)
-        : Infinity;
-      if (sinceLastFeed > 3 * 3600 * 1000) {
-        const dayNum = Math.floor(ageDays) + 1;
-        return `${statusText}\n⚠️ _Day ${dayNum}: wake to feed — every 2–4h_`;
-      }
+      const sinceLastFeed   = st?.last_feed   ? now - new Date(st.last_feed.start_at)   : Infinity;
+      const sinceLastDiaper = st?.last_diaper ? now - new Date(st.last_diaper.start_at) : Infinity;
+      const dayNum = Math.floor(ageDays) + 1;
+      const warnings = [];
+      if (sinceLastFeed   > 3 * 3600 * 1000) warnings.push(`⚠️ _Day ${dayNum}: wake to feed — every 2–4h_`);
+      if (sinceLastDiaper > 3 * 3600 * 1000 && sinceLastDiaper !== Infinity)
+        warnings.push(`⚠️ _No diaper in ${Math.floor(sinceLastDiaper / 3600000)}h — check hydration_`);
+      if (warnings.length) return `${statusText}\n${warnings.join('\n')}`;
     }
   }
 
   return statusText;
+}
+
+// Concise night-time status (10pm–6am SGT) — just what matters at 3am.
+export function nightStatusLine(st, now = new Date(), birthDate = null) {
+  if (!st?.last_feed) {
+    if (!birthDate) return 'Not fed yet.';
+    const ageDays = (now - new Date(birthDate)) / 86400000;
+    if (ageDays <= 14) return `Not fed yet.\n⚠️ _Day ${Math.floor(ageDays) + 1}: wake to feed every 2–4h_`;
+    return 'Not fed yet.';
+  }
+  const sinceLastFeed = now - new Date(st.last_feed.start_at);
+  const fd = st.last_feed.detail;
+  let icon = '🍼';
+  if (fd?.type === 'latch') icon = '🤱';
+  else if (fd?.type === 'formula') icon = '🍶';
+  let text = `${icon} ${span(sinceLastFeed)} ago · ${clock(st.last_feed.start_at)}`;
+  if (st?.sleep?.ongoing) text += `\n😴 asleep ${span(now - new Date(st.sleep.start_at))}`;
+  if (birthDate) {
+    const ageDays = (now - new Date(birthDate)) / 86400000;
+    if (ageDays <= 14 && sinceLastFeed > 3 * 3600 * 1000)
+      text += `\n⚠️ _Day ${Math.floor(ageDays) + 1}: feed overdue_`;
+  }
+  return text;
 }
 
 export { sgNow, currentRowDate };

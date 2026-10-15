@@ -39,6 +39,9 @@ export function initScheduler(bot, { babyLog, supabase } = {}) {
   // ── Daily 6am SGT — EPDS + vaccination checks ─────────────────────────────
   cron.schedule('0 6 * * *', runDailyHealthChecks, { timezone: 'Asia/Singapore' });
 
+  // ── Every 30 min — feed interval reminders ───────────────────────────────
+  cron.schedule('*/30 * * * *', checkFeedReminders);
+
   // ── Daily 9pm SGT — baby log scan reminders ───────────────────────────────
   cron.schedule('0 21 * * *', async () => {
     if (!babyLogRef || !supabaseRef) return;
@@ -84,6 +87,32 @@ async function hourlyCheck() {
     } catch (e) {
       console.error('newborn feed alerts failed:', e.message);
     }
+  }
+}
+
+async function checkFeedReminders() {
+  if (!botInstance) return;
+  try {
+    const { popDueReminders } = await import('./babyLog/feedReminder.js');
+    const due = popDueReminders();
+    for (const { userId, babyName } of due) {
+      try {
+        // Resolve the user's chat_id from the stored user record
+        if (!supabaseRef) continue;
+        const { data: user } = await supabaseRef.from('users').select('id, chat_id').eq('id', userId).maybeSingle();
+        const chatId = user?.chat_id || user?.id;
+        if (!chatId) continue;
+        await botInstance.telegram.sendMessage(
+          chatId,
+          `⏰ *Time to feed ${babyName}!*\n\nYour feed reminder has fired. Tap /log to record it.`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch (e) {
+        console.error(`Feed reminder send failed for user ${userId}:`, e.message);
+      }
+    }
+  } catch (e) {
+    console.error('checkFeedReminders failed:', e.message);
   }
 }
 
