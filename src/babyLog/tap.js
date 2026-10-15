@@ -243,8 +243,7 @@ function periodNavKeyboard() {
 
 function keyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('🍼 Feed', 'tap:feed'), Markup.button.callback('😴 Asleep', 'tap:sleep'),
-      Markup.button.callback('☀️ Awake', 'tap:wake')],
+    [Markup.button.callback('🍼 Feed', 'tap:feed'), Markup.button.callback('😴 Asleep', 'tap:sleep')],
     [Markup.button.callback('💧 Wet', 'tap:wet'), Markup.button.callback('💩 Dirty', 'tap:dirty'),
       Markup.button.callback('💧💩 Both', 'tap:both')],
     [Markup.button.callback('📝 Note', 'tap:note'), Markup.button.callback('💊 PD', 'tap:pd'),
@@ -343,12 +342,24 @@ export function registerTapLog(bot, { supabase, queries }) {
       detail: detail && Object.keys(detail).length ? detail : null,
     }, ts);
     if (error) throw error;
+    await closeSleep(baby.id, ts ?? new Date());
   }
 
   async function openSleep(babyId) {
     const { data } = await supabase.from('baby_events').select('*')
       .eq('baby_id', babyId).eq('kind', 'sleep').eq('source', 'tap').is('end_at', null).maybeSingle();
     return data;
+  }
+
+  async function closeSleep(babyId, ts = new Date()) {
+    const open = await openSleep(babyId);
+    if (!open) return;
+    const endTs = ts instanceof Date ? ts : new Date(ts);
+    if (new Date(open.start_at) >= endTs) return; // sleep started after the activity — don't touch it
+    const { error } = await supabase.from('baby_events')
+      .update({ end_at: endTs.toISOString() })
+      .eq('id', open.id);
+    if (error) console.error('closeSleep failed', error);
   }
 
   // ── /log command ──────────────────────────────────────────────────────────────
@@ -617,17 +628,6 @@ export function registerTapLog(bot, { supabase, queries }) {
           if (error && error.code !== '23505') throw error;
           note = `😴 Asleep at ${clock(ts)}`;
         }
-      } else if (pending.kind === 'wake') {
-        const open = await openSleep(baby.id);
-        if (!open) {
-          note = 'No open sleep to close — tap 😴 Asleep first.';
-        } else {
-          const { error } = await supabase.from('baby_events')
-            .update({ end_at: ts.toISOString(), detail: { ...(open.detail || {}), ended_by: ctx.from.id } })
-            .eq('id', open.id);
-          if (error) throw error;
-          note = `☀️ Woke up at ${clock(ts)} (slept ${span(ts - new Date(open.start_at))})`;
-        }
       } else {
         const detailMap = {
           wet:   { wet: true },
@@ -635,6 +635,7 @@ export function registerTapLog(bot, { supabase, queries }) {
           both:  { wet: true, dirty: true },
         };
         await insertAt(baby, ctx, { kind: 'diaper', detail: detailMap[pending.kind] }, ts);
+        await closeSleep(baby.id, ts);
         const icons = { wet: '💧', dirty: '💩', both: '💧💩' };
         note = `${icons[pending.kind]} at ${clock(ts)}`;
       }
@@ -663,7 +664,6 @@ export function registerTapLog(bot, { supabase, queries }) {
   const actions = {
     async feed(ctx, baby)  { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'feed');  return null; },
     async sleep(ctx, baby) { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'sleep'); return null; },
-    async wake(ctx, baby)  { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'wake');  return null; },
     async wet(ctx, baby)   { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'wet');   return null; },
     async dirty(ctx, baby) { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'dirty'); return null; },
     async both(ctx, baby)  { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'both');  return null; },
@@ -738,6 +738,7 @@ export function registerTapLog(bot, { supabase, queries }) {
   async function diaper(ctx, baby, detail) {
     const { error } = await insert(baby, ctx, { kind: 'diaper', detail });
     if (error) throw error;
+    await closeSleep(baby.id, new Date());
     return `Diaper logged (${Object.keys(detail).join(' + ')})`;
   }
 
@@ -875,17 +876,6 @@ export function registerTapLog(bot, { supabase, queries }) {
           const { error } = await insert(baby, ctx, { kind: 'sleep', end_at: null });
           if (error && error.code !== '23505') throw error;
           note = `Asleep from ${clock(new Date())}`;
-        }
-      } else if (kind === 'wake') {
-        const open = await openSleep(baby.id);
-        if (!open) { note = 'No sleep running. Tap 😴 when baby falls asleep.'; }
-        else {
-          const end = new Date();
-          const { error } = await supabase.from('baby_events')
-            .update({ end_at: end.toISOString(), detail: { ...(open.detail || {}), ended_by: ctx.from.id } })
-            .eq('id', open.id);
-          if (error) throw error;
-          note = `Slept ${span(end - new Date(open.start_at))}`;
         }
       } else if (kind === 'wet')   { note = await diaper(ctx, baby, { wet: true }); }
       else if (kind === 'dirty')   { note = await diaper(ctx, baby, { dirty: true }); }
