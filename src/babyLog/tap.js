@@ -30,6 +30,10 @@ const pendingNote = new Map();
 // userId → { detail, retroTs? } — short-lived, cleared when feed is logged or cancelled
 const pendingFeedRepeat = new Map();
 
+// ── Active latch timer ────────────────────────────────────────────────────────
+// userId → { startedAt: Date, side: 'left'|'right'|'both'|null, retroTs: Date|null }
+const activeLatch = new Map();
+
 function getPendingNote(userId) {
   const p = pendingNote.get(userId);
   if (!p || Date.now() > p.expiresAt) { pendingNote.delete(userId); return null; }
@@ -307,7 +311,16 @@ function latchSideKeyboard() {
     [Markup.button.callback('⬅️ Left',  'tap:feed:latch:L'),
      Markup.button.callback('➡️ Right', 'tap:feed:latch:R'),
      Markup.button.callback('↔️ Both',  'tap:feed:latch:B')],
-    [Markup.button.callback('⏭ Skip', 'tap:feed:latch:skip')],
+    [Markup.button.callback('⏱ Start timer', 'tap:feed:latch:timer'),
+     Markup.button.callback('⏭ Skip', 'tap:feed:latch:skip')],
+  ]);
+}
+
+function latchTimerKeyboard(side) {
+  const sLabel = side === 'L' ? '⬅️' : side === 'R' ? '➡️' : side ? '↔️' : '';
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(`${sLabel} Switch side`, 'tap:latch:switch'),
+     Markup.button.callback('🛑 Stop', 'tap:latch:stop')],
   ]);
 }
 
@@ -358,15 +371,27 @@ export function registerTapLog(bot, { supabase, queries }) {
     return Object.keys(map).length ? map : null;
   }
 
+  function latchTimerLine(userId, now = new Date()) {
+    const t = activeLatch.get(String(userId));
+    if (!t) return null;
+    const elapsed = Math.round((now - t.startedAt) / 60000);
+    const sLabel  = t.side === 'left' ? ' ⬅️' : t.side === 'right' ? ' ➡️' : t.side === 'both' ? ' ↔️' : '';
+    return `🤱 latching${sLabel} — ${elapsed}m`;
+  }
+
   async function render(ctx, baby, note) {
     const [st, names] = await Promise.all([
       q.status(baby.id),
       caregiverNames(baby.id, ctx.from.id),
     ]);
-    const now  = new Date();
-    const sl   = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date, names);
-    const text = `${baby.name} right now\n\n${sl}${note ? `\n\n✓ ${note}` : ''}`;
-    return { text, kb: keyboard() };
+    const now   = new Date();
+    const timer = latchTimerLine(ctx.from.id, now);
+    const sl    = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date, names);
+    const status = timer ? `${timer}\n${sl}` : sl;
+    const text  = `${baby.name} right now\n\n${status}${note ? `\n\n✓ ${note}` : ''}`;
+    const lSide = activeLatch.get(String(ctx.from.id))?.side;
+    const kb    = timer ? latchTimerKeyboard(lSide === 'left' ? 'L' : lSide === 'right' ? 'R' : lSide === 'both' ? 'B' : null) : keyboard();
+    return { text, kb };
   }
 
   async function renderWithPrompt(ctx, baby, prompt, kb) {
@@ -374,9 +399,11 @@ export function registerTapLog(bot, { supabase, queries }) {
       q.status(baby.id),
       caregiverNames(baby.id, ctx.from.id),
     ]);
-    const now = new Date();
-    const sl  = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date, names);
-    const text = `${baby.name} right now\n\n${sl}\n\n${prompt}`;
+    const now   = new Date();
+    const timer = latchTimerLine(ctx.from.id, now);
+    const sl    = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date, names);
+    const status = timer ? `${timer}\n${sl}` : sl;
+    const text  = `${baby.name} right now\n\n${status}\n\n${prompt}`;
     try {
       await ctx.editMessageText(text, { parse_mode: 'Markdown', ...kb });
     } catch (e) {
@@ -730,7 +757,7 @@ export function registerTapLog(bot, { supabase, queries }) {
   }
 
   const actions = {
-    async feed(ctx, baby)  { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'feed');  return null; },
+    async feed(ctx, baby)  { await ctx.answerCbQuery(); activeLatch.delete(String(ctx.from.id)); await stageWhen(ctx, baby, 'feed');  return null; },
     async sleep(ctx, baby) { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'sleep'); return null; },
     async remind(ctx, baby) {
       await ctx.answerCbQuery();
@@ -802,6 +829,7 @@ export function registerTapLog(bot, { supabase, queries }) {
       pendingInput.delete(ctx.from.id);
       pendingNote.delete(ctx.from.id);
       pendingAction.delete(ctx.from.id);
+      activeLatch.delete(String(ctx.from.id));
       await ctx.answerCbQuery();
       const { text, kb } = await render(ctx, baby);
       try { await ctx.editMessageText(text, kb); } catch (e) {
@@ -1038,7 +1066,16 @@ export function registerTapLog(bot, { supabase, queries }) {
           return renderWithPrompt(ctx, baby, '_Latch — which side?_', latchSideKeyboard());
         }
 
-        const side = parts[1]; // 'L' | 'R' | 'B' | 'skip'
+        const side = parts[1]; // 'L' | 'R' | 'B' | 'timer' | 'skip'
+
+        if (side === 'timer') {
+          // Start latch timer without a side selected yet
+          await ctx.answerCbQuery('Timer started');
+          activeLatch.set(String(ctx.from.id), { startedAt: new Date(), side: null, retroTs: consumeRetroTime(ctx.from.id) });
+          const { text, kb } = await render(ctx, baby);
+          try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
+          return;
+        }
 
         if (side === 'skip') {
           const ts   = consumeRetroTime(ctx.from.id);
@@ -1164,6 +1201,47 @@ export function registerTapLog(bot, { supabase, queries }) {
     const remindAt = new Date(Date.now() + hours * 3600 * 1000);
     setFeedReminder(ctx.from.id, remindAt, baby.name);
     const { text, kb } = await render(ctx, baby, `⏰ Reminder set for ${clock(remindAt)}`);
+    try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
+  });
+
+  // ── Active latch timer controls ──────────────────────────────────────────────
+
+  bot.action('tap:latch:switch', async (ctx) => {
+    await ctx.answerCbQuery();
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    const t = activeLatch.get(String(ctx.from.id));
+    if (!t) {
+      const { text, kb } = await render(ctx, baby);
+      try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
+      return;
+    }
+    const CYCLE = [null, 'left', 'right', 'both'];
+    const cur   = CYCLE.indexOf(t.side);
+    const next  = CYCLE[(cur + 1) % CYCLE.length];
+    activeLatch.set(String(ctx.from.id), { ...t, side: next });
+    const { text, kb } = await render(ctx, baby);
+    try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
+  });
+
+  bot.action('tap:latch:stop', async (ctx) => {
+    await ctx.answerCbQuery('Feed logged ✓');
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    const t = activeLatch.get(String(ctx.from.id));
+    activeLatch.delete(String(ctx.from.id));
+    const now         = new Date();
+    const startedAt   = t?.startedAt ?? now;
+    const durationMin = Math.max(1, Math.round((now - startedAt) / 60000));
+    const sideWord    = t?.side ?? null;
+    const detail      = { type: 'latch', ...(sideWord ? { side: sideWord } : {}), duration_min: durationMin };
+    const retroTs     = t?.retroTs ?? null;
+    const logTs       = retroTs ?? startedAt;
+    await logFeed(ctx, baby, detail, logTs);
+    clearFeedReminder(ctx.from.id);
+    const sideShort = sideWord === 'left' ? ' ⬅️' : sideWord === 'right' ? ' ➡️' : sideWord === 'both' ? ' ↔️' : '';
+    const note = `🤱 Latch${sideShort} · ${durationMin}m at ${clock(logTs)}`;
+    const { text, kb } = await render(ctx, baby, note);
     try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
   });
 
