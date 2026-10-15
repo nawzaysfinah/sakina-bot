@@ -314,13 +314,13 @@ export function registerTapLog(bot, { supabase, queries }) {
 
   async function render(ctx, baby, note) {
     const st   = await q.status(baby.id);
-    const text = `${baby.name} right now\n\n${statusLine(st)}${note ? `\n\n✓ ${note}` : ''}`;
+    const text = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}${note ? `\n\n✓ ${note}` : ''}`;
     return { text, kb: keyboard() };
   }
 
   async function renderWithPrompt(ctx, baby, prompt, kb) {
     const st = await q.status(baby.id);
-    const text = `${baby.name} right now\n\n${statusLine(st)}\n\n${prompt}`;
+    const text = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}\n\n${prompt}`;
     try {
       await ctx.editMessageText(text, { parse_mode: 'Markdown', ...kb });
     } catch (e) {
@@ -512,7 +512,7 @@ export function registerTapLog(bot, { supabase, queries }) {
           await insertAt(baby, ctx, { kind: 'note', detail: { text } }, noteState.retroTs);
           const ts  = noteState.retroTs ?? new Date();
           const st  = await q.status(baby.id);
-          const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n✓ 📝 "${text}" at ${clock(ts)}`;
+          const msg = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}\n\n✓ 📝 "${text}" at ${clock(ts)}`;
           await editLog(msg, keyboard());
         }
       } catch (e) {
@@ -554,7 +554,7 @@ export function registerTapLog(bot, { supabase, queries }) {
         }
         await logFeed(ctx, baby, detail, retroTs);
         const st  = await q.status(baby.id);
-        const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n✓ ${note}`;
+        const msg = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}\n\n✓ ${note}`;
         await editLog(msg, keyboard());
       } catch (e) {
         console.error('custom value log failed', e);
@@ -586,7 +586,7 @@ export function registerTapLog(bot, { supabase, queries }) {
       // Store the time, then show feed type keyboard via the stored log message
       pendingRetro.set(ctx.from.id, { ...pending, ts, expiresAt: Date.now() + RETRO_TTL_MS });
       const st  = await q.status(baby.id);
-      const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n_What type of feed? (${clock(ts)})_`;
+      const msg = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}\n\n_What type of feed? (${clock(ts)})_`;
       await editLog(msg, feedTypeKeyboard());
       return; // don't call next()
     }
@@ -599,7 +599,7 @@ export function registerTapLog(bot, { supabase, queries }) {
         retroTs: ts, expiresAt: Date.now() + NOTE_TTL_MS,
       });
       const st  = await q.status(baby.id);
-      const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n_Type your note for ${clock(ts)}:_`;
+      const msg = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}\n\n_Type your note for ${clock(ts)}:_`;
       await editLog(msg, Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]));
       return;
     }
@@ -639,7 +639,7 @@ export function registerTapLog(bot, { supabase, queries }) {
         note = `${icons[pending.kind]} at ${clock(ts)}`;
       }
       const st  = await q.status(baby.id);
-      const msg = `${baby.name} right now\n\n${statusLine(st)}\n\n✓ ${note}`;
+      const msg = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}\n\n✓ ${note}`;
       await editLog(msg, keyboard());
     } catch (e) {
       console.error('retro log failed', e);
@@ -811,7 +811,7 @@ export function registerTapLog(bot, { supabase, queries }) {
       expiresAt: Date.now() + NOTE_TTL_MS,
     });
     const st = await q.status(baby.id);
-    const text = `${baby.name} right now\n\n${statusLine(st)}\n\n_Type your question for the PD appointment:_`;
+    const text = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}\n\n_Type your question for the PD appointment:_`;
     try {
       await ctx.editMessageText(text, {
         parse_mode: 'Markdown',

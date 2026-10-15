@@ -27,6 +27,49 @@ export async function sendScanReminders(bot, supabase, queries) {
   }
 }
 
+// ── Newborn feed alerts — called from hourlyCheck every hour ─────────────────
+
+export async function checkNewbornFeedAlerts(bot, supabase, queries) {
+  const now        = new Date();
+  const caregivers = await queries.allCaregivers();
+
+  for (const c of caregivers) {
+    try {
+      const { birth_date: birthDate } = c.babies;
+      if (!birthDate) continue;
+
+      const ageDays = (now - new Date(birthDate)) / 86400000;
+      if (ageDays > 14 || ageDays < 0) continue; // outside newborn window
+
+      const st = await queries.status(c.babies.id);
+      const sinceLastFeed = st?.last_feed
+        ? now - new Date(st.last_feed.start_at)
+        : null; // null = no feed logged yet (new user, skip silently)
+
+      if (sinceLastFeed === null || sinceLastFeed <= 3.5 * 3600 * 1000) continue;
+
+      // At-most-one alert per caregiver per SGT hour slot
+      const sgNow  = new Date(now.getTime() + 8 * 3600 * 1000);
+      const sgDate = sgNow.toISOString().slice(0, 10);
+      const sgHour = sgNow.getUTCHours();
+      if (!(await queries.claimJob('newborn_feed_alert', `${c.telegram_user_id}_${sgDate}_${sgHour}`))) continue;
+
+      const h   = Math.floor(sinceLastFeed / 3600000);
+      const m   = Math.floor((sinceLastFeed % 3600000) / 60000);
+      const ago = `${h}h ${m}m ago`;
+      const day = Math.floor(ageDays) + 1;
+
+      await bot.telegram.sendMessage(
+        c.telegram_user_id,
+        `⚠️ *${c.babies.name} was last fed ${ago}*\n\n_Day ${day} newborns need feeding every 2–4h — even when asleep._\n\nTap /log to record the feed.`,
+        { parse_mode: 'Markdown' },
+      );
+    } catch (e) {
+      console.error('newborn feed alert failed for', c.telegram_user_id, e.description || e.message);
+    }
+  }
+}
+
 // Not called in sakina-bot — kept for reference and standalone use only.
 export function startDailyJobs(bot, supabase, queries, {
   reminderAt = '21:00',

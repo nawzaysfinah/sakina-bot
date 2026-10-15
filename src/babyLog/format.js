@@ -130,7 +130,7 @@ export function ageText(birthDate, now = new Date()) {
     : `${w} week${w === 1 ? '' : 's'}${days % 7 ? ` ${days % 7} day${days % 7 === 1 ? '' : 's'}` : ''} old`;
 }
 
-export function statusLine(st, now = new Date()) {
+export function statusLine(st, now = new Date(), birthDate = null) {
   const parts = [];
   if (st?.last_feed) {
     const fd = st.last_feed.detail;
@@ -155,7 +155,24 @@ export function statusLine(st, now = new Date()) {
     const k = [st.last_diaper.detail?.wet && 'wet', st.last_diaper.detail?.dirty && 'dirty'].filter(Boolean).join(' + ');
     parts.push(`🧷 diaper ${span(now - new Date(st.last_diaper.start_at))} ago${k ? ` (${k})` : ''}`);
   }
-  return parts.length ? parts.join('\n') : 'Nothing logged yet today.';
+
+  const statusText = parts.length ? parts.join('\n') : 'Nothing logged yet today.';
+
+  // Newborn feeding warning — show when < 14 days old and feed overdue
+  if (birthDate) {
+    const ageDays = (now - new Date(birthDate)) / 86400000;
+    if (ageDays <= 14) {
+      const sinceLastFeed = st?.last_feed
+        ? now - new Date(st.last_feed.start_at)
+        : Infinity;
+      if (sinceLastFeed > 3 * 3600 * 1000) {
+        const dayNum = Math.floor(ageDays) + 1;
+        return `${statusText}\n⚠️ _Day ${dayNum}: wake to feed — every 2–4h_`;
+      }
+    }
+  }
+
+  return statusText;
 }
 
 export { sgNow, currentRowDate };

@@ -75,6 +75,16 @@ async function hourlyCheck() {
       console.error(`Hourly check error for user ${user.id}:`, err.message);
     }
   }
+
+  // Newborn feed alerts — runs every hour for babies ≤ 14 days old
+  if (babyLogRef && supabaseRef) {
+    try {
+      const { checkNewbornFeedAlerts } = await import('./babyLog/scheduler.js');
+      await checkNewbornFeedAlerts(botInstance, supabaseRef, babyLogRef.queries);
+    } catch (e) {
+      console.error('newborn feed alerts failed:', e.message);
+    }
+  }
 }
 
 function getLocalHour(date, timezone) {
