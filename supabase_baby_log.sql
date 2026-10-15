@@ -240,13 +240,13 @@ returns jsonb language sql stable as $$
     'last_paper_row',   (select max(row_date) from paper_rows where baby_id = p_baby),
     'last_feed', (
       select to_jsonb(x) from (
-        select start_at, source from e where kind = 'feed'
+        select start_at, source, detail, logged_by from e where kind = 'feed'
         order by start_at desc limit 1
       ) x
     ),
     'last_diaper', (
       select to_jsonb(x) from (
-        select start_at, source, detail from e where kind = 'diaper'
+        select start_at, source, detail, logged_by from e where kind = 'diaper'
         order by start_at desc limit 1
       ) x
     ),

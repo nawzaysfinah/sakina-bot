@@ -344,18 +344,38 @@ export function registerTapLog(bot, { supabase, queries }) {
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
+  // Returns { userId: firstName } for all caregivers of this baby, excluding the viewer.
+  async function caregiverNames(babyId, viewerUserId) {
+    const { data } = await supabase.from('users')
+      .select('id, name')
+      .or(`id.eq.${babyId},linked_user_id.eq.${babyId}`)
+      .neq('id', viewerUserId);
+    if (!data?.length) return null;
+    const map = {};
+    for (const u of data) {
+      if (u.name) map[String(u.id)] = u.name.split(' ')[0]; // first name only
+    }
+    return Object.keys(map).length ? map : null;
+  }
+
   async function render(ctx, baby, note) {
-    const st   = await q.status(baby.id);
+    const [st, names] = await Promise.all([
+      q.status(baby.id),
+      caregiverNames(baby.id, ctx.from.id),
+    ]);
     const now  = new Date();
-    const sl   = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date);
+    const sl   = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date, names);
     const text = `${baby.name} right now\n\n${sl}${note ? `\n\n✓ ${note}` : ''}`;
     return { text, kb: keyboard() };
   }
 
   async function renderWithPrompt(ctx, baby, prompt, kb) {
-    const st  = await q.status(baby.id);
+    const [st, names] = await Promise.all([
+      q.status(baby.id),
+      caregiverNames(baby.id, ctx.from.id),
+    ]);
     const now = new Date();
-    const sl  = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date);
+    const sl  = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date, names);
     const text = `${baby.name} right now\n\n${sl}\n\n${prompt}`;
     try {
       await ctx.editMessageText(text, { parse_mode: 'Markdown', ...kb });

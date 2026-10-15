@@ -130,7 +130,8 @@ export function ageText(birthDate, now = new Date()) {
     : `${w} week${w === 1 ? '' : 's'}${days % 7 ? ` ${days % 7} day${days % 7 === 1 ? '' : 's'}` : ''} old`;
 }
 
-export function statusLine(st, now = new Date(), birthDate = null) {
+export function statusLine(st, now = new Date(), birthDate = null, caregiverNames = null) {
+  const byName = (userId) => caregiverNames && userId ? caregiverNames[String(userId)] || null : null;
   const parts = [];
   if (st?.last_feed) {
     const fd = st.last_feed.detail;
@@ -147,13 +148,15 @@ export function statusLine(st, now = new Date(), birthDate = null) {
       icon = '🍶';
       extra = fd.amount_ml ? ` (${fd.amount_ml}ml)` : '';
     }
-    parts.push(`${icon} fed ${span(now - new Date(st.last_feed.start_at))} ago${extra} · ${clock(st.last_feed.start_at)}`);
+    const by = byName(st.last_feed.logged_by);
+    parts.push(`${icon} fed ${span(now - new Date(st.last_feed.start_at))} ago${extra} · ${clock(st.last_feed.start_at)}${by ? ` · ${by}` : ''}`);
   }
   if (st?.sleep?.ongoing) parts.push(`😴 asleep for ${span(now - new Date(st.sleep.start_at))}`);
   else if (st?.sleep?.end_at) parts.push(`☀️ awake for ${span(now - new Date(st.sleep.end_at))}`);
   if (st?.last_diaper) {
     const k = [st.last_diaper.detail?.wet && 'wet', st.last_diaper.detail?.dirty && 'dirty'].filter(Boolean).join(' + ');
-    parts.push(`🧷 diaper ${span(now - new Date(st.last_diaper.start_at))} ago${k ? ` (${k})` : ''}`);
+    const by = byName(st.last_diaper.logged_by);
+    parts.push(`🧷 diaper ${span(now - new Date(st.last_diaper.start_at))} ago${k ? ` (${k})` : ''}${by ? ` · ${by}` : ''}`);
   }
 
   const statusText = parts.length ? parts.join('\n') : 'Nothing logged yet today.';
