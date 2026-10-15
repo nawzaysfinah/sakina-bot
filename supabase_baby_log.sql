@@ -269,6 +269,14 @@ returns boolean language sql as $$
   select exists (select 1 from ins)
 $$;
 
+-- Tracks the one live /log message per user for editing in-place.
+create table if not exists user_log_messages (
+  user_id    bigint primary key,
+  chat_id    bigint not null,
+  message_id bigint not null,
+  updated_at timestamptz default now()
+);
+
 -- ── BLOCK 4: RLS (service-role key bypasses this; protects anon access) ───────
 
 alter table paper_scans  enable row level security;

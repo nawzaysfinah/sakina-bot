@@ -453,13 +453,39 @@ export function registerTapLog(bot, { supabase, queries }) {
     if (error) console.error('closeSleep failed', error);
   }
 
+  // ── Pinned /log message helpers ───────────────────────────────────────────────
+
+  async function getStoredLogMsg(userId) {
+    const { data } = await supabase.from('user_log_messages')
+      .select('chat_id, message_id').eq('user_id', userId).maybeSingle();
+    return data || null;
+  }
+
+  async function storeLogMsg(userId, chatId, messageId) {
+    await supabase.from('user_log_messages').upsert(
+      { user_id: userId, chat_id: chatId, message_id: messageId, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    );
+  }
+
   // ── /log command ──────────────────────────────────────────────────────────────
 
   bot.command('log', async (ctx) => {
     const baby = await q.babyFor(ctx.from.id);
     if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD (or /joinbaby CODE).');
     const { text, kb } = await render(ctx, baby);
-    return ctx.reply(text, kb);
+    const stored = await getStoredLogMsg(ctx.from.id);
+    if (stored && stored.chat_id === ctx.chat.id) {
+      try {
+        await ctx.telegram.editMessageText(stored.chat_id, stored.message_id, undefined, text,
+          { parse_mode: 'Markdown', ...kb });
+        return; // successfully refreshed the existing message
+      } catch (e) {
+        // message was deleted or too old — fall through to send new
+      }
+    }
+    const sent = await ctx.reply(text, kb);
+    await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
   });
 
   // ── /logs — day view + navigation ─────────────────────────────────────────────
