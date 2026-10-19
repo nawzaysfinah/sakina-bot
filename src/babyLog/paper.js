@@ -133,6 +133,10 @@ export function registerPaperLog(bot, {
     );
   });
 
+  bot.command('setup', async (ctx) => {
+    return ctx.reply('Buttons restored 👇', quickKb);
+  });
+
   async function startScan(ctx, text) {
     const baby = await babyFor(ctx.from.id);
     if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD (or /joinbaby CODE).');
