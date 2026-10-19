@@ -110,6 +110,11 @@ async function start() {
 
     const webhookHandler = bot.webhookCallback(webhookPath);
     const server = http.createServer((req, res) => {
+      if (req.url === '/health') {
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        return res.end(JSON.stringify({ ok: true }));
+      }
       // Route /app/* to the Mini App handler; everything else to webhook
       if (babyLog.miniApp && req.url && (req.url === '/app' || req.url.startsWith('/app/'))) {
         return babyLog.miniApp(req, res, () => { res.statusCode = 404; res.end('Not found'); });

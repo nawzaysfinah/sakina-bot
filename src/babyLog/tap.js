@@ -478,13 +478,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     const { text, kb } = await render(ctx, baby);
     const stored = await getStoredLogMsg(ctx.from.id);
     if (stored && stored.chat_id === ctx.chat.id) {
-      try {
-        await ctx.telegram.editMessageText(stored.chat_id, stored.message_id, undefined, text,
-          { parse_mode: 'Markdown', ...kb });
-        return; // successfully refreshed the existing message
-      } catch (e) {
-        // message was deleted or too old — fall through to send new
-      }
+      ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
     }
     const sent = await ctx.reply(text, kb);
     await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
@@ -631,11 +625,7 @@ export function registerTapLog(bot, { supabase, queries }) {
       const { text: logText, kb } = await render(ctx, baby);
       const stored = await getStoredLogMsg(ctx.from.id);
       if (stored && stored.chat_id === ctx.chat.id) {
-        try {
-          await ctx.telegram.editMessageText(stored.chat_id, stored.message_id, undefined, logText,
-            { parse_mode: 'Markdown', ...kb });
-          return;
-        } catch { /* fall through to send new */ }
+        ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
       }
       const sent = await ctx.reply(logText, kb);
       await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
