@@ -38,6 +38,18 @@ export async function handleMessage(ctx) {
   const userId = ctx.from.id;
   const text   = ctx.message?.text?.trim() || '';
 
+  // Commands handled by their own bot.command() registrations — skip all middleware here.
+  // This list must include every command registered outside message.js.
+  const SELF_HANDLED_CMDS = new Set([
+    'setup', 'newbaby', 'joinbaby', 'scan', 'log', 'logs', 'dashboard',
+    'pd', 'weight', 'milestone', 'about', 'week', 'tip', 'reset',
+    'reminders', 'urgent', 'undo', 'share', 'view',
+  ]);
+  if (text.startsWith('/')) {
+    const cmd = text.slice(1).split(/[\s@]/)[0].toLowerCase();
+    if (SELF_HANDLED_CMDS.has(cmd)) return;
+  }
+
   const user = await getUser(userId);
 
   // ── New user ───────────────────────────────────────────────────────────────
@@ -56,11 +68,11 @@ export async function handleMessage(ctx) {
     return handleEpdsMessage(ctx, user, epdsSession, text);
   }
 
-  // ── Unknown slash commands — handled by their own bot.command() registrations
+  // ── Remaining slash commands passed through to their handlers ────────────────
   if (text.startsWith('/')) {
     const cmd = text.slice(1).split(/[\s@]/)[0].toLowerCase();
-    const handled = new Set(['start', 'today', 'switch', 'progress', 'help', 'log', 'share', 'view']);
-    if (!handled.has(cmd)) return;
+    const passThrough = new Set(['start', 'today', 'switch', 'progress', 'help']);
+    if (!passThrough.has(cmd)) return;
   }
 
   // ── /today ─────────────────────────────────────────────────────────────────
