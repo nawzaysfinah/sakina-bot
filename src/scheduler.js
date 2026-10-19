@@ -93,22 +93,40 @@ async function hourlyCheck() {
 async function checkFeedReminders() {
   if (!botInstance) return;
   try {
-    const { popDueReminders } = await import('./babyLog/feedReminder.js');
-    const due = popDueReminders();
-    for (const { userId, babyName } of due) {
+    const { popDueReminders, popDueAutoReminders } = await import('./babyLog/feedReminder.js');
+
+    const resolveChat = async (userId) => {
+      if (!supabaseRef) return null;
+      const { data: user } = await supabaseRef.from('users').select('id, chat_id').eq('id', userId).maybeSingle();
+      return user?.chat_id || user?.id || null;
+    };
+
+    // Manual reminders (set via ⏰ button)
+    for (const { userId, babyName } of popDueReminders()) {
       try {
-        // Resolve the user's chat_id from the stored user record
-        if (!supabaseRef) continue;
-        const { data: user } = await supabaseRef.from('users').select('id, chat_id').eq('id', userId).maybeSingle();
-        const chatId = user?.chat_id || user?.id;
+        const chatId = await resolveChat(userId);
         if (!chatId) continue;
         await botInstance.telegram.sendMessage(
           chatId,
-          `⏰ *Time to feed ${babyName}!*\n\nYour feed reminder has fired. Tap /log to record it.`,
+          `⏰ *Time to feed ${babyName}!*\n\nYour reminder has fired. Tap /log to record it.`,
           { parse_mode: 'Markdown' }
         );
       } catch (e) {
         console.error(`Feed reminder send failed for user ${userId}:`, e.message);
+      }
+    }
+
+    // Auto reminders (skin-on-skin at +2h, feed due at +3h)
+    for (const { userId, babyName, type } of popDueAutoReminders()) {
+      try {
+        const chatId = await resolveChat(userId);
+        if (!chatId) continue;
+        const msg = type === 'skin_on_skin'
+          ? `🤗 *Time for skin-on-skin with ${babyName}!*\n\nUndress ${babyName} down to their nappy and hold them against your chest for 15–20 minutes. Skin-on-skin regulates temperature, heartbeat, and bonding 🌿`
+          : `🍼 *${babyName} is due for a feed!*\n\nIt's been 3 hours since their last feed. Tap /log to record it.`;
+        await botInstance.telegram.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+      } catch (e) {
+        console.error(`Auto feed reminder send failed for user ${userId}:`, e.message);
       }
     }
   } catch (e) {

@@ -5,7 +5,7 @@
 
 import { Markup } from 'telegraf';
 import { clock, span, statusLine, nightStatusLine, currentRowDateStr, addDays, dayLabel, hrs } from './format.js';
-import { setFeedReminder, clearFeedReminder, getFeedReminder } from './feedReminder.js';
+import { setFeedReminder, clearFeedReminder, getFeedReminder, setAutoFeedReminders, clearAutoFeedReminders } from './feedReminder.js';
 
 const UNDO_MINUTES  = 30;
 const RETRO_TTL_MS  = 3 * 60 * 1000;  // 3 min to tap/type a structured value before pending expires
@@ -426,7 +426,9 @@ export function registerTapLog(bot, { supabase, queries }) {
       detail: detail && Object.keys(detail).length ? detail : null,
     }, ts);
     if (error) throw error;
-    await closeSleep(baby.id, ts ?? new Date());
+    const feedTime = ts instanceof Date ? ts : (ts ? new Date(ts) : new Date());
+    await closeSleep(baby.id, feedTime);
+    setAutoFeedReminders(ctx.from.id, baby.name, feedTime);
   }
 
   async function openSleep(babyId) {
@@ -621,6 +623,30 @@ export function registerTapLog(bot, { supabase, queries }) {
   bot.on('text', async (ctx, next) => {
     const text = ctx.message?.text?.trim() || '';
     if (text.startsWith('/')) return next(); // don't intercept commands
+
+    // ── Persistent quick-access buttons ──────────────────────────────────────
+    if (text === '📋 Log') {
+      const baby = await q.babyFor(ctx.from.id);
+      if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+      const { text: logText, kb } = await render(ctx, baby);
+      const stored = await getStoredLogMsg(ctx.from.id);
+      if (stored && stored.chat_id === ctx.chat.id) {
+        try {
+          await ctx.telegram.editMessageText(stored.chat_id, stored.message_id, undefined, logText,
+            { parse_mode: 'Markdown', ...kb });
+          return;
+        } catch { /* fall through to send new */ }
+      }
+      const sent = await ctx.reply(logText, kb);
+      await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
+      return;
+    }
+    if (text === '📊 Dashboard') {
+      const baby = await q.babyFor(ctx.from.id);
+      if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+      const { text: dashText, kb } = await sendLogsView(ctx, baby, currentSgtDate());
+      return ctx.reply(dashText, { parse_mode: 'Markdown', ...kb });
+    }
 
     // ── Note text input ───────────────────────────────────────────────────────
     const noteState = getPendingNote(ctx.from.id);

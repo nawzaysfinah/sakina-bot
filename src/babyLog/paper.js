@@ -74,6 +74,11 @@ export function registerPaperLog(bot, {
 
   const monthOf = (scan) => scan.month.slice(0, 7);
 
+  // Persistent quick-access keyboard shown once baby is set up.
+  const quickKb = Markup.keyboard([['📋 Log', '📊 Dashboard']])
+    .resize()
+    .persistent();
+
   // ---------- commands
 
   bot.command('newbaby', async (ctx) => {
@@ -91,7 +96,10 @@ export function registerPaperLog(bot, {
       baby_join_code: join_code,
     }).eq('id', ctx.from.id);
     if (error) return ctx.reply("Sorry, I couldn't create that profile.");
-    return ctx.reply(`Created ${name}'s log 🤍\nYour partner can join with:\n/joinbaby ${join_code}`);
+    return ctx.reply(
+      `Created ${name}'s log 🤍\nYour partner can join with:\n/joinbaby ${join_code}\n\n_Use the buttons below anytime to open the log or dashboard._`,
+      { parse_mode: 'Markdown', ...quickKb }
+    );
   });
 
   bot.command('joinbaby', async (ctx) => {
@@ -121,7 +129,7 @@ export function registerPaperLog(bot, {
       + `Use /log to record feeds, sleep, and nappies.\n`
       + `Use /dashboard to see the weekly summary.\n\n`
       + `You'll get a baby brief in your morning message each day.`,
-      { parse_mode: 'Markdown' }
+      { parse_mode: 'Markdown', ...quickKb }
     );
   });
 
