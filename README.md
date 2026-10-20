@@ -8,6 +8,8 @@ A daily wellness companion for pregnancy, postpartum recovery, and baby developm
 
 ## Features
 
+### Wellness modes
+
 | Mode | Description |
 |------|-------------|
 | 🌱 **Prepare** | Week-by-week birth preparation tasks (Weeks 32–40) with weekend tasks and daily habits |
@@ -15,20 +17,45 @@ A daily wellness companion for pregnancy, postpartum recovery, and baby developm
 | 🔷 **Recover — C-section** | Distinct surgical recovery track: wound care, mobility restrictions, scar massage from Day 21 |
 | 🌸 **Tumbuh** | Milestone-gated baby development activities (0–12 months): motor, social, cognitive |
 
-### Clinical improvements (v2)
+### Baby log (tap-based)
 
-- **Two recovery tracks** — vaginal and cesarean are fundamentally different. C-section is major abdominal surgery and gets a medically accurate schedule (bed rest Days 1–3, no lifting throughout, scar massage Day 21+, jamu from Day 15)
-- **Milestone-gated Tumbuh** — advance through developmental phases yourself when ready, rather than auto-advancing by age
-- **EPDS mood screening** — Edinburgh Postnatal Depression Scale offered at Day 7, 14, and 30. Score-based guidance and referral for high-risk results
-- **Health log** — track breastfeeds, bottle feeds (ml), baby weight (with low-weight alert), and nappy count (with dehydration alert if <6 wet/day after Day 5)
-- **Vaccination reminders** — automatic 3-day alerts before each Singapore NCIS vaccination milestone
-- **/urgent danger signs** — always-accessible emergency command with A&E criteria, C-section-specific warning signs, and baby danger signs with Singapore helpline numbers
+`/log` opens a real-time dashboard you tap to log — no typing required.
+
+- **Feed** — breastfeed (latch: side + duration) or bottle/expressed milk (ml)
+- **Sleep** — start/end a sleep session; open sessions tracked in real time
+- **Diaper** — wet, dirty, or both
+- **Status view** — shows the last event per category with the clock time it happened, plus today's running totals:
+  - 🍼 feeds · total ml · total latch time
+  - 😴 sleep duration today
+  - 🧷 wet count (W) · dirty count (D)
+- **Next-feed deadline** — ⏰ feed by `HH:MMam/pm` (last feed + 3 hours); shows "feed overdue" if past
+- **Day summary** — pinned at the top of the dashboard
+
+### Paper notebook scanning
+
+`/scan` — photograph your sleep/feed notebook pages. The bot reads the grid using Gemini Vision, confirms the rows found, and saves them to the database. Paper data always wins over tap data for the same day.
+
+### Multi-caregiver support
+
+`/newbaby` creates a baby profile. Share the join code with a partner using `/joinbaby CODE` — both caregivers can log and the status shows who logged last.
+
+### Clinical features
+
+- **EPDS mood screening** — Edinburgh Postnatal Depression Scale at Day 7, 14, and 30 after baby_dob. Score-based guidance and referral for high-risk results (Q10 > 0 always escalates)
+- **Vaccination reminders** — automatic 3-day alerts before each Singapore NCIS milestone
+- **Newborn alerts** — if baby is ≤ 14 days old: warns when last feed > 3 h ago; warns if no diaper logged in 3 h
+- **/urgent** — always-accessible emergency command with A&E criteria, C-section-specific warning signs, and baby danger signs with Singapore helpline numbers
 - **Streak counter** — consecutive days of activity shown in morning briefing and progress
 - **Weekly Sunday summary** — automated weekly check-in with mode context
-- **Timezone-aware scheduling** — briefings sent at each user's local 8am/7pm (reads `timezone` from user profile)
-- **Partner access** — generate a 6-character share code; partner views your daily briefing read-only via `/view`
-- **/undo command** — unmark the last logged task if you tapped the wrong one
-- **Better fallback** — when no task matches, shows examples from your pending tasks and offers a contextual button
+- **Timezone-aware scheduling** — briefings sent at each user's local 8am/7pm
+
+### Other
+
+- **Partner access** — `/share` generates a 6-character code; partner views your daily briefing read-only via `/view`
+- **/undo** — unmark the last logged task
+- **NLP task logging** — "I did tummy time and read to the baby" → matches and logs tasks automatically
+- **NLP reminders** — "Remind me Friday to call the hospital" → parsed, saved, confirmed with date
+- **Better fallback** — when no task matches, shows examples from your pending tasks
 
 ---
 
@@ -41,16 +68,21 @@ A daily wellness companion for pregnancy, postpartum recovery, and baby developm
 | `/week` | 📅 See your current week or day summary |
 | `/progress` | 📊 Completion count + streak |
 | `/switch` | 🔄 Switch mode (Prepare / Recover / Tumbuh) |
+| `/log` | 📔 Baby log: tap to record feed / sleep / diaper |
+| `/dashboard` | 📊 Baby log dashboard — recent events + day summary |
+| `/scan` | 📷 Scan a notebook page (Gemini Vision OCR) |
+| `/newbaby` | 🤍 Set up a baby profile |
+| `/joinbaby` | 🤝 Join an existing baby profile with a code |
 | `/reminders` | 📌 View and manage your reminders |
 | `/urgent` | 🚨 Emergency danger signs & Singapore contacts |
 | `/undo` | ↩️ Unmark last logged task |
-| `/log` | 📊 Log feeding, weight, or nappy count |
 | `/share` | 🔗 Generate partner/doula read-only access code |
+| `/view` | 👀 View a shared briefing (partner use) |
 | `/about` | ℹ️ What is Sakina? |
 | `/reset` | ⚠️ Reset your profile and start fresh |
 | `/start` | ▶️ Register or restart onboarding |
 
-### Natural language — no commands needed
+### Natural language
 
 **Log tasks:**
 > "I did tummy time and read a book to the baby"
@@ -61,22 +93,6 @@ A daily wellness companion for pregnancy, postpartum recovery, and baby developm
 > "Add a reminder for 10 Sep to pack my hospital bag"
 > → Saved to database, confirmed with parsed date 📌
 
-**Log health data:**
-```
-/log feed breast 15 left   → breastfeed 15 min, left side
-/log feed bottle 80        → bottle feed 80ml
-/log weight 3.5kg          → baby weight (flags if <2.5kg)
-/log nappy wet             → wet nappy (alerts if <6/day after Day 5)
-/log nappy dirty           → dirty nappy
-/log summary               → today's full health log
-```
-
-**Partner access:**
-```
-/share         → generates a 6-char code (30-day expiry)
-/view XXXXXX   → partner views owner's daily briefing
-```
-
 ---
 
 ## Architecture
@@ -84,22 +100,30 @@ A daily wellness companion for pregnancy, postpartum recovery, and baby developm
 ```
 src/
   bot.js              ← Telegraf entry point (webhook + polling fallback)
+                         HTTP server with /health endpoint for keep-alive pinging
   scheduler.js        ← Hourly cron: morning/evening per user timezone
                          Sunday weekly summary
                          Daily: EPDS prompts + vaccination reminders
   db.js               ← Supabase: users, task_completions, reminders,
                          health_logs, epds_sessions, milestone_completions,
-                         share_tokens
+                         share_tokens, baby_events, paper_rows, paper_scans,
+                         user_log_messages
   handlers/
     message.js        ← Router: EPDS intercept → reminder → task log → fallback
     callbacks.js      ← Inline keyboard: mode, delivery type, EPDS, milestone advance
     onboarding.js     ← Multi-step: start → mode → delivery_type → date → done
-    commands.js       ← /about /week /tip /reset /reminders /urgent /undo /log /share
+    commands.js       ← /about /week /tip /reset /reminders /urgent /undo /share /view
   services/
     content.js        ← Mode content + two recover tracks + milestone gating
                          Vaccination schedule (NCIS)
     claude.js         ← Gemini: task parsing + empathetic responses
     reminders.js      ← Gemini: reminder intent detection + date resolution
+  babyLog/
+    index.js          ← Registers all baby log handlers with the bot instance
+    tap.js            ← /log and /dashboard command handlers; keyboard UI; sleep toggle
+    format.js         ← statusLine(), daySummary(), clock(), span(), ageText()
+    scan.js           ← /scan photo collection → Gemini Vision OCR → review → save
+    query.js          ← Supabase helpers: baby lookup, event CRUD, status fetch
   data/
     birthPlan.json    ← 9 weeks × weekend tasks + daily habits
     babyDev.json      ← 6 phases × 13 week-periods × motor/social/cognitive tasks
@@ -124,6 +148,7 @@ src/
 1. supabase_schema.sql      — users + task_completions
 2. supabase_reminders.sql   — reminders table
 3. supabase_v3.sql          — delivery_type, health_logs, EPDS, milestone_completions, share_tokens
+4. supabase_baby_log.sql    — baby_events, paper_rows, paper_scans, user_log_messages + RPCs
 ```
 
 3. Copy your **Project URL** and **service_role** key (Settings → API)
@@ -162,19 +187,22 @@ The bot starts in **polling mode** when `WEBHOOK_URL` is not set — perfect for
 
 ---
 
-## Deploy to Railway
+## Deploy to Render
 
 1. Push this project to a GitHub repo
-2. Go to [railway.app](https://railway.app) → New Project → Deploy from GitHub
-3. Add environment variables in Railway's **Variables** tab:
+2. Go to [render.com](https://render.com) → New → Web Service → connect your repo
+3. Set **Build Command** to `npm install` and **Start Command** to `npm start`
+4. Add environment variables in Render's **Environment** tab:
    - `BOT_TOKEN`
    - `GEMINI_API_KEY`
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_KEY`
    - `PORT=3000`
-4. Go to **Settings → Networking → Generate Domain** — copy the URL
-5. Add one more variable: `WEBHOOK_URL=https://your-service.up.railway.app`
-6. Railway redeploys automatically in webhook mode
+5. Once deployed, copy the service URL (e.g. `https://sakina-bot.onrender.com`)
+6. Add one more variable: `WEBHOOK_URL=https://sakina-bot.onrender.com`
+7. Render redeploys automatically in webhook mode
+
+> **Keeping the service warm:** Render free-tier services sleep after ~15 min of inactivity. Set up [UptimeRobot](https://uptimerobot.com) to ping `https://your-service.onrender.com/health` every 5 minutes to prevent cold-starts.
 
 ---
 
@@ -187,6 +215,14 @@ Run SQL files in Supabase in this order:
 | `supabase_schema.sql` | `users`, `task_completions` | Core profile + task tracking |
 | `supabase_reminders.sql` | `reminders` | Custom date-based reminders |
 | `supabase_v3.sql` | `health_logs`, `epds_sessions`, `milestone_completions`, `share_tokens` | Health tracking, mood screening, milestone gating, partner access |
+| `supabase_baby_log.sql` | `baby_events`, `paper_rows`, `paper_scans`, `user_log_messages` | Tap log, notebook scanning, status tracking |
+
+The `supabase_baby_log.sql` file also creates:
+
+- `baby_status(p_baby)` RPC — returns last feed/sleep/diaper + today's totals (feeds, ml, latch_min, sleep_min, wet, dirty) in one query
+- `baby_grid()` / `baby_days()` / `baby_averages()` — sleep/feed grid and statistics
+- `sgt_row_date(ts)` — maps a timestamp to a notebook row date (day starts 7pm SGT)
+- `baby_events_effective` view — paper data wins over tap data for confirmed days
 
 ### New columns added to `users` (v3)
 
@@ -196,6 +232,8 @@ Run SQL files in Supabase in this order:
 | `streak_days` | int | Consecutive days with ≥1 task logged |
 | `last_active_date` | date | Last day a task was completed |
 | `tumbuh_week_id` | text | Override for milestone-gated Tumbuh (null = auto by age) |
+| `baby_name` | text | Baby's name (set via /newbaby) |
+| `baby_join_code` | text | Unique code for partner to join via /joinbaby |
 
 ---
 
@@ -245,9 +283,9 @@ Automatic reminders 3 days before each milestone:
 
 ## Tech Stack
 
-- **Telegraf v4** — Telegram bot framework
-- **Google Gemini** (`gemini-3.5-flash-lite`) — NLP task matching, reminder intent detection, warm responses
-- **Supabase** — PostgreSQL database for multi-user state
+- **Telegraf v4** — Telegram bot framework (ES modules)
+- **Google Gemini** (`gemini-3.5-flash-lite`) — NLP task matching, reminder intent, notebook OCR, warm responses
+- **Supabase** — PostgreSQL database with RPC functions for multi-user state
 - **node-cron** — Hourly cron with per-user timezone support
-- **Node.js 18+** — ES modules throughout, no build step
+- **Node.js 22+** — ES modules throughout, no build step
 - **Intl.DateTimeFormat** — Timezone-aware scheduling (no external packages)
