@@ -128,12 +128,43 @@ function clockInTz(ts, tz = 'Asia/Singapore') {
 
 // ── Today's events display ────────────────────────────────────────────────────
 
+function daySummary(events, now) {
+  const feeds   = events.filter(e => e.kind === 'feed');
+  const sleeps  = events.filter(e => e.kind === 'sleep');
+  const diapers = events.filter(e => e.kind === 'diaper');
+
+  const feedCount  = feeds.length;
+  const totalMl    = feeds.reduce((s, e) => s + (e.detail?.amount_ml || 0), 0);
+  const latchMin   = feeds
+    .filter(e => e.detail?.type === 'latch')
+    .reduce((s, e) => s + (e.detail?.duration_min || 0), 0);
+  const sleepMs    = sleeps.reduce((s, e) => {
+    const end = e.end_at ? new Date(e.end_at) : now;
+    return s + Math.max(0, end - new Date(e.start_at));
+  }, 0);
+  const wet   = diapers.filter(e => e.detail?.wet).length;
+  const dirty = diapers.filter(e => e.detail?.dirty).length;
+
+  const parts = [];
+  if (feedCount) {
+    let f = `🍼 ${feedCount} feeds`;
+    if (totalMl)  f += ` · ${totalMl}ml`;
+    if (latchMin) f += ` · ${span(latchMin * 60000)} latch`;
+    parts.push(f);
+  }
+  if (sleepMs) parts.push(`😴 ${span(sleepMs)}`);
+  if (wet || dirty) parts.push(`🧷 W${wet} D${dirty}`);
+  return parts.join('  ');
+}
+
 function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = new Date(), tz = 'Asia/Singapore') {
   const isToday = rowDate === currentSgtDate(now);
   if (!events?.length) {
     const header = isToday ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
     return `${header}\n\nNothing logged yet.`;
   }
+
+  const summary = daySummary(events.filter(e => e.kind !== 'pd_question'), now);
 
   const lines = events.filter(e => e.kind !== 'pd_question').map(e => {
     const t = clockInTz(e.start_at, tz);
@@ -169,7 +200,8 @@ function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = n
   });
 
   const header = isToday ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
-  return `${header}\n\n${lines.join('\n')}`;
+  const summaryBlock = summary ? `${summary}\n\n` : '';
+  return `${header}\n\n${summaryBlock}${lines.join('\n')}`;
 }
 
 function formatPeriodSummary(rows, babyName, days) {

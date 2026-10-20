@@ -151,7 +151,9 @@ export function statusLine(st, now = new Date(), birthDate = null, caregiverName
       extra = fd.amount_ml ? ` (${fd.amount_ml}ml)` : '';
     }
     const by        = byName(st.last_feed.logged_by);
-    const feedCount = today.feeds ? ` · ${today.feeds} feeds` : '';
+    const mlPart    = today.ml    ? ` · ${today.ml}ml`              : '';
+    const latchPart = today.latch_min ? ` · ${span(today.latch_min * 60000)} latch` : '';
+    const feedCount = today.feeds ? ` · ${today.feeds} feeds${mlPart}${latchPart}` : '';
     parts.push(`${icon} ${clock(st.last_feed.start_at)}${extra}${feedCount}${by ? ` · ${by}` : ''}`);
   }
 

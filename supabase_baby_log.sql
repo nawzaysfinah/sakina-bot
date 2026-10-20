@@ -266,7 +266,14 @@ returns jsonb language sql stable as $$
                     and (detail->>'wet')::boolean = true),
       'dirty',     (select count(*)::int from e
                     where kind = 'diaper' and sgt_row_date(start_at) = sgt_row_date(now())
-                    and (detail->>'dirty')::boolean = true)
+                    and (detail->>'dirty')::boolean = true),
+      'ml',        (select coalesce(sum((detail->>'amount_ml')::numeric), 0)::int from e
+                    where kind = 'feed' and sgt_row_date(start_at) = sgt_row_date(now())
+                    and detail->>'amount_ml' is not null),
+      'latch_min', (select coalesce(sum((detail->>'duration_min')::numeric), 0)::int from e
+                    where kind = 'feed' and sgt_row_date(start_at) = sgt_row_date(now())
+                    and detail->>'type' = 'latch'
+                    and detail->>'duration_min' is not null)
     )
   )
 $$;
