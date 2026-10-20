@@ -388,7 +388,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     const timer = latchTimerLine(ctx.from.id, now);
     const sl    = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date, names);
     const status = timer ? `${timer}\n${sl}` : sl;
-    const text  = `${baby.name} right now\n\n${status}${note ? `\n\n✓ ${note}` : ''}`;
+    const text  = `${baby.name} · ${clock(now)}\n\n${status}${note ? `\n\n✓ ${note}` : ''}`;
     const lSide = activeLatch.get(String(ctx.from.id))?.side;
     const kb    = timer ? latchTimerKeyboard(lSide === 'left' ? 'L' : lSide === 'right' ? 'R' : lSide === 'both' ? 'B' : null) : keyboard();
     return { text, kb };
@@ -403,7 +403,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     const timer = latchTimerLine(ctx.from.id, now);
     const sl    = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date, names);
     const status = timer ? `${timer}\n${sl}` : sl;
-    const text  = `${baby.name} right now\n\n${status}\n\n${prompt}`;
+    const text  = `${baby.name} · ${clock(now)}\n\n${status}\n\n${prompt}`;
     try {
       await ctx.editMessageText(text, { parse_mode: 'Markdown', ...kb });
     } catch (e) {

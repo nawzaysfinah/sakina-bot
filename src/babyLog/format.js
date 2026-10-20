@@ -132,7 +132,9 @@ export function ageText(birthDate, now = new Date()) {
 
 export function statusLine(st, now = new Date(), birthDate = null, caregiverNames = null) {
   const byName = (userId) => caregiverNames && userId ? caregiverNames[String(userId)] || null : null;
-  const parts = [];
+  const today  = st?.today || {};
+  const parts  = [];
+
   if (st?.last_feed) {
     const fd = st.last_feed.detail;
     let icon = '🍼', extra = '';
@@ -148,18 +150,38 @@ export function statusLine(st, now = new Date(), birthDate = null, caregiverName
       icon = '🍶';
       extra = fd.amount_ml ? ` (${fd.amount_ml}ml)` : '';
     }
-    const by = byName(st.last_feed.logged_by);
-    parts.push(`${icon} fed ${span(now - new Date(st.last_feed.start_at))} ago${extra} · ${clock(st.last_feed.start_at)}${by ? ` · ${by}` : ''}`);
+    const by        = byName(st.last_feed.logged_by);
+    const feedCount = today.feeds ? ` · ${today.feeds} feeds` : '';
+    parts.push(`${icon} ${clock(st.last_feed.start_at)}${extra}${feedCount}${by ? ` · ${by}` : ''}`);
   }
-  if (st?.sleep?.ongoing) parts.push(`😴 asleep for ${span(now - new Date(st.sleep.start_at))}`);
-  else if (st?.sleep?.end_at) parts.push(`☀️ awake for ${span(now - new Date(st.sleep.end_at))}`);
+
+  if (st?.sleep?.ongoing) {
+    const sleepTotal = today.sleep_min ? ` · ${span(today.sleep_min * 60000)} today` : '';
+    parts.push(`😴 since ${clock(st.sleep.start_at)}${sleepTotal}`);
+  } else if (st?.sleep?.end_at) {
+    const sleepTotal = today.sleep_min ? ` · ${span(today.sleep_min * 60000)} today` : '';
+    parts.push(`☀️ awake ${clock(st.sleep.end_at)}${sleepTotal}`);
+  }
+
   if (st?.last_diaper) {
-    const k = [st.last_diaper.detail?.wet && 'wet', st.last_diaper.detail?.dirty && 'dirty'].filter(Boolean).join(' + ');
-    const by = byName(st.last_diaper.logged_by);
-    parts.push(`🧷 diaper ${span(now - new Date(st.last_diaper.start_at))} ago${k ? ` (${k})` : ''}${by ? ` · ${by}` : ''}`);
+    const k     = [st.last_diaper.detail?.wet && 'wet', st.last_diaper.detail?.dirty && 'dirty'].filter(Boolean).join(' + ');
+    const by    = byName(st.last_diaper.logged_by);
+    const wet   = today.wet   ?? 0;
+    const dirty = today.dirty ?? 0;
+    const counts = (wet || dirty) ? ` · W${wet} D${dirty}` : '';
+    parts.push(`🧷 ${clock(st.last_diaper.start_at)}${k ? ` (${k})` : ''}${counts}${by ? ` · ${by}` : ''}`);
   }
 
   const statusText = parts.length ? parts.join('\n') : 'Nothing logged yet today.';
+
+  // Next feed deadline (last feed + 3h)
+  let nextFeedLine = '';
+  if (st?.last_feed) {
+    const nextAt = new Date(st.last_feed.start_at).getTime() + 3 * 3600 * 1000;
+    nextFeedLine = nextAt > now.getTime()
+      ? `\n\n⏰ feed by ${clock(new Date(nextAt))}`
+      : `\n\n⏰ feed overdue`;
+  }
 
   if (birthDate) {
     const ageDays = (now - new Date(birthDate)) / 86400000;
@@ -171,11 +193,11 @@ export function statusLine(st, now = new Date(), birthDate = null, caregiverName
       if (sinceLastFeed   > 3 * 3600 * 1000) warnings.push(`⚠️ _Day ${dayNum}: wake to feed — every 2–4h_`);
       if (sinceLastDiaper > 3 * 3600 * 1000 && sinceLastDiaper !== Infinity)
         warnings.push(`⚠️ _No diaper in ${Math.floor(sinceLastDiaper / 3600000)}h — check hydration_`);
-      if (warnings.length) return `${statusText}\n${warnings.join('\n')}`;
+      if (warnings.length) return `${statusText}${nextFeedLine}\n${warnings.join('\n')}`;
     }
   }
 
-  return statusText;
+  return `${statusText}${nextFeedLine}`;
 }
 
 // Concise night-time status (10pm–6am SGT) — just what matters at 3am.

@@ -255,6 +255,18 @@ returns jsonb language sql stable as $$
         select start_at, end_at, source, (end_at is null) as ongoing
         from e where kind = 'sleep' order by start_at desc limit 1
       ) x
+    ),
+    'today', jsonb_build_object(
+      'feeds',     (select count(*)::int from e
+                    where kind = 'feed' and sgt_row_date(start_at) = sgt_row_date(now())),
+      'sleep_min', (select coalesce(sum(extract(epoch from (coalesce(end_at, now()) - start_at)) / 60)::int, 0)
+                    from e where kind = 'sleep' and sgt_row_date(start_at) = sgt_row_date(now())),
+      'wet',       (select count(*)::int from e
+                    where kind = 'diaper' and sgt_row_date(start_at) = sgt_row_date(now())
+                    and (detail->>'wet')::boolean = true),
+      'dirty',     (select count(*)::int from e
+                    where kind = 'diaper' and sgt_row_date(start_at) = sgt_row_date(now())
+                    and (detail->>'dirty')::boolean = true)
     )
   )
 $$;
