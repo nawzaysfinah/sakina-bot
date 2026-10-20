@@ -17,7 +17,7 @@ import {
 import { parseCompletedTasks, generateLogResponse } from '../services/claude.js';
 import { parseReminderIntent } from '../services/reminders.js';
 import { handleOnboarding } from './onboarding.js';
-import { handleLog, handleShare, handleView } from './commands.js';
+import { handleShare, handleView } from './commands.js';
 import { Markup } from 'telegraf';
 
 // EPDS questions — full Edinburgh Postnatal Depression Scale
@@ -126,16 +126,6 @@ export async function handleMessage(ctx) {
 Or just *tell me what you've done* and I'll log it automatically 🌿`,
       { parse_mode: 'Markdown' }
     );
-  }
-
-  // ── /log command ────────────────────────────────────────────────────────────
-  if (text.startsWith('/log')) {
-    return handleLog(ctx);
-  }
-
-  // ── /share command ──────────────────────────────────────────────────────────
-  if (text.startsWith('/share')) {
-    return handleShare(ctx);
   }
 
   // ── /view command ───────────────────────────────────────────────────────────

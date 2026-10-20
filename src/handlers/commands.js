@@ -1,13 +1,12 @@
 /**
  * Command handlers.
- * /about, /week, /tip, /reset, /reminders, /urgent, /undo, /log, /share
+ * /about, /week, /tip, /reset, /reminders, /urgent, /undo, /share, /view
  */
 
 import {
   getUser, upsertUser,
   getUpcomingReminders, markReminderDone, deleteReminder,
   unmarkLastTask,
-  addHealthLog, getTodayHealthLogs, getHealthLogsSince,
   createShareToken,
 } from '../db.js';
 import { getPrepareContent, getRecoverContent, getTumbuhContent } from '../services/content.js';
@@ -275,179 +274,6 @@ export async function handleUndo(ctx) {
     `↩️ *Undone!* Task \`${taskId}\` has been unmarked.\n\nSend /today to see your current list.`,
     { parse_mode: 'Markdown' }
   );
-}
-
-// ── /log — health tracking ────────────────────────────────────────────────────
-
-export async function handleLog(ctx) {
-  const user = await getUser(ctx.from.id);
-  if (!user || user.onboarding !== 'done') {
-    return ctx.reply('Please complete setup first — send /start');
-  }
-
-  const text  = ctx.message.text?.trim().replace('/log', '').trim() || '';
-  const lower = text.toLowerCase();
-
-  // ── Feed logging: /log feed breast 15 left | /log feed bottle 60ml ──────────
-  if (lower.startsWith('feed') || lower.startsWith('bf') || lower.startsWith('bottle')) {
-    return handleFeedLog(ctx, user, text);
-  }
-
-  // ── Weight: /log weight 3.5kg | /log weight 3500g ───────────────────────────
-  if (lower.startsWith('weight') || lower.startsWith('berat')) {
-    return handleWeightLog(ctx, user, text);
-  }
-
-  // ── Nappy: /log nappy wet | /log nappy dirty ─────────────────────────────────
-  if (lower.startsWith('nappy') || lower.startsWith('diaper') || lower.startsWith('wet') || lower.startsWith('dirty')) {
-    return handleNappyLog(ctx, user, text);
-  }
-
-  // ── Summary: /log summary ────────────────────────────────────────────────────
-  if (lower.startsWith('summary') || lower === '') {
-    return handleLogSummary(ctx, user);
-  }
-
-  // ── Help ──────────────────────────────────────────────────────────────────────
-  return ctx.reply(
-`📊 *Health Log commands:*
-
-*Feeding:*
-• \`/log feed breast 15 left\` — breastfeed, 15 min, left side
-• \`/log feed breast 10 right\` — right side
-• \`/log feed bottle 80\` — bottle, 80ml
-
-*Baby weight:*
-• \`/log weight 3.5kg\` or \`/log weight 3500g\`
-
-*Nappy count:*
-• \`/log nappy wet\` — wet nappy
-• \`/log nappy dirty\` — dirty nappy
-
-*View today's logs:*
-• \`/log summary\``,
-    { parse_mode: 'Markdown' }
-  );
-}
-
-async function handleFeedLog(ctx, user, text) {
-  const lower = text.toLowerCase();
-  const isBottle = lower.includes('bottle');
-  const logType  = isBottle ? 'feed_bottle' : 'feed_breast';
-
-  // Extract duration (minutes)
-  const minMatch = text.match(/(\d+)\s*(?:min|m(?:in)?s?)?/i);
-  const value = minMatch ? parseInt(minMatch[1]) : null;
-
-  // Extract side (breastfeed)
-  let side = null;
-  if (!isBottle) {
-    if (lower.includes('left') || lower.includes('kiri'))  side = 'left';
-    if (lower.includes('right') || lower.includes('kanan')) side = 'right';
-    if (lower.includes('both') || lower.includes('kedua')) side = 'both';
-  }
-
-  // Extract ml (bottle)
-  const mlMatch = text.match(/(\d+)\s*ml/i);
-  const mlValue = mlMatch ? parseInt(mlMatch[1]) : value;
-
-  await addHealthLog(user.id, logType, mlValue, isBottle ? 'ml' : 'min', null, side);
-
-  // Check today's feeds for context
-  const todayFeeds = await getTodayHealthLogs(user.id, logType);
-  const count = todayFeeds.length;
-
-  const icon   = isBottle ? '🍼' : '🤱';
-  const detail = isBottle
-    ? `${mlValue || '?'}ml`
-    : `${value || '?'} min${side ? ` (${side})` : ''}`;
-
-  return ctx.reply(
-    `${icon} *Feed logged!* ${detail}\n\n📊 Today: ${count} ${isBottle ? 'bottle' : 'breastfeed'}${count !== 1 ? 's' : ''} so far\n\n_View all: /log summary_`,
-    { parse_mode: 'Markdown' }
-  );
-}
-
-async function handleWeightLog(ctx, user, text) {
-  // Parse kg or g
-  const kgMatch = text.match(/([\d.]+)\s*kg/i);
-  const gMatch  = text.match(/([\d.]+)\s*g\b/i);
-
-  let valueKg = null;
-  if (kgMatch) valueKg = parseFloat(kgMatch[1]);
-  else if (gMatch) valueKg = parseFloat(gMatch[1]) / 1000;
-  else {
-    // Bare number — assume kg if > 50, else treat as kg
-    const numMatch = text.match(/([\d.]+)/);
-    if (numMatch) valueKg = parseFloat(numMatch[1]);
-  }
-
-  if (!valueKg || valueKg < 0.5 || valueKg > 20) {
-    return ctx.reply('Please give a valid baby weight, e.g. `/log weight 3.5kg` or `/log weight 3500g`', { parse_mode: 'Markdown' });
-  }
-
-  await addHealthLog(user.id, 'weight', valueKg, 'kg');
-
-  // Get previous weight for comparison
-  const prevLogs = await getHealthLogsSince(user.id, 'weight', 30);
-  const prev = prevLogs.find(l => l.value !== valueKg); // first different entry
-  const diff = prev ? (valueKg - prev.value).toFixed(3) : null;
-  const trend = diff === null ? '' : diff >= 0 ? `📈 +${diff}kg since last` : `📉 ${diff}kg since last`;
-
-  // Low weight alert (below 2.5kg is clinical concern)
-  const alert = valueKg < 2.5 ? '\n\n⚠️ _Weight below 2.5kg — discuss with your paediatrician_' : '';
-
-  return ctx.reply(
-    `⚖️ *Weight logged:* ${valueKg.toFixed(3)} kg\n${trend}${alert}`,
-    { parse_mode: 'Markdown' }
-  );
-}
-
-async function handleNappyLog(ctx, user, text) {
-  const lower    = text.toLowerCase();
-  const isDirty  = lower.includes('dirty') || lower.includes('solid') || lower.includes('poo') || lower.includes('bm');
-  const logType  = isDirty ? 'nappy_dirty' : 'nappy_wet';
-
-  await addHealthLog(user.id, logType, 1, 'count');
-
-  const todayWet   = (await getTodayHealthLogs(user.id, 'nappy_wet')).length;
-  const todayDirty = (await getTodayHealthLogs(user.id, 'nappy_dirty')).length;
-
-  // Clinical alert: fewer than 6 wet nappies per day after Day 5 = dehydration risk
-  const babyDays = user.baby_dob ? daysBetween(user.baby_dob) + 1 : null;
-  let alert = '';
-  if (babyDays && babyDays > 5 && todayWet < 4 && !isDirty) {
-    alert = '\n\n⚠️ _Fewer than 6 wet nappies is normal in first 5 days. After Day 5, fewer than 6/day warrants a call to your doctor._';
-  }
-
-  return ctx.reply(
-    `🧷 *Nappy logged:* ${isDirty ? 'dirty 💩' : 'wet 💧'}\n\n📊 Today: ${todayWet} wet · ${todayDirty} dirty${alert}`,
-    { parse_mode: 'Markdown' }
-  );
-}
-
-async function handleLogSummary(ctx, user) {
-  const breastFeeds = await getTodayHealthLogs(user.id, 'feed_breast');
-  const bottleFeeds = await getTodayHealthLogs(user.id, 'feed_bottle');
-  const weights     = await getHealthLogsSince(user.id, 'weight', 7);
-  const wetNappies  = await getTodayHealthLogs(user.id, 'nappy_wet');
-  const dirtyNappies= await getTodayHealthLogs(user.id, 'nappy_dirty');
-
-  const totalBottleMl = bottleFeeds.reduce((s, l) => s + (l.value || 0), 0);
-  const latestWeight  = weights[0];
-
-  let text = `📊 *Today's health log*\n\n`;
-  text += `🤱 Breastfeeds: *${breastFeeds.length}*\n`;
-  text += `🍼 Bottle feeds: *${bottleFeeds.length}*${totalBottleMl ? ` (${totalBottleMl}ml total)` : ''}\n`;
-  text += `🧷 Wet nappies: *${wetNappies.length}* ${wetNappies.length < 6 ? '⚠️' : '✅'}\n`;
-  text += `🧷 Dirty nappies: *${dirtyNappies.length}*\n`;
-  if (latestWeight) {
-    text += `\n⚖️ Latest weight: *${latestWeight.value?.toFixed(3)} kg* (${new Date(latestWeight.logged_at).toLocaleDateString('en-SG')})`;
-  }
-
-  text += `\n\n_Log more: /log feed · /log weight · /log nappy_`;
-
-  return ctx.reply(text, { parse_mode: 'Markdown' });
 }
 
 // ── /share — generate partner access code ─────────────────────────────────────
