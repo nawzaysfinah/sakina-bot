@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Baby log</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f3f2ef);
+    --text: var(--tg-theme-text-color, #1f1e1b);
+    --hint: var(--tg-theme-hint-color, #7a776f);
+    --accent: var(--tg-theme-button-color, #534ab7);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --line: color-mix(in srgb, var(--hint) 28%, transparent);
+    --sleep: #7f77dd;
+    --sleep-tap: #afa9ec;
+    --feed: #d85a30;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not(.tg) { --bg: #1c1c1e; --bg2: #2a2a2d; --text: #eceae4; --hint: #9c9a92; --accent: #7f77dd; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  main { max-width: 560px; margin: 0 auto; padding: 16px 16px 40px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 4px 0 0; letter-spacing: -0.01em; }
+  h2 { font-size: 13px; font-weight: 600; margin: 28px 0 10px; color: var(--hint); text-transform: uppercase; letter-spacing: 0.06em; }
+  .age { color: var(--hint); margin: 2px 0 0; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tile { background: var(--bg2); border-radius: 14px; padding: 12px; min-height: 92px; }
+  .tile .k { font-size: 12px; color: var(--hint); }
+  .tile .v { font-size: 19px; font-weight: 600; margin-top: 4px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .tile .s { font-size: 12px; color: var(--hint); margin-top: 2px; }
+  .note { font-size: 12px; color: var(--hint); margin: 8px 2px 0; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-size: 12px; color: var(--hint); font-weight: 500; }
+  tr:last-child td { border-bottom: 0; }
+  .grid-wrap { background: var(--bg2); border-radius: 14px; padding: 12px 10px 10px; }
+  svg text { fill: var(--hint); font-size: 10px; font-family: inherit; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--hint); margin-top: 10px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  button { width: 100%; border: 0; border-radius: 12px; padding: 14px; font: inherit; font-weight: 600; background: var(--accent); color: var(--accent-text); cursor: pointer; }
+  button:disabled { opacity: 0.6; }
+  .status { text-align: center; font-size: 13px; color: var(--hint); min-height: 20px; margin-top: 8px; }
+  .empty { color: var(--hint); padding: 40px 0; text-align: center; }
+  @media (max-width: 360px) { .tile .v { font-size: 17px; } }
+</style>
+</head>
+<body>
+<main id="app"><p class="empty">Loading&#x2026;</p></main>
+
+<script>
+(() => {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  if (tg && tg.initData) { document.documentElement.classList.add('tg'); tg.ready(); tg.expand(); }
+  const base = location.pathname.endsWith('.html') ? location.pathname.replace(/[^/]*$/, '')
+    : location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
+  const initData = (tg && tg.initData) || '';
+  const TZ = 'Asia/Singapore';
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  let data = null;
+
+  const api = (p) => fetch(base + 'api/' + p, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData }),
+  });
+
+  const hrs = (m) => { if (m == null) return '—'; m = Math.round(m); const h = Math.floor(m / 60), r = m % 60; return r ? `${h}h ${String(r).padStart(2, '0')}m` : `${h}h`; };
+  const span = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); if (m < 1) return 'just now'; const h = Math.floor(m / 60); return h ? `${h}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`; };
+  const clock = (ts) => new Date(ts).toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', timeZone: TZ }).replace(' ', '').toLowerCase();
+  const day = (d) => { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd)).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' }); };
+  const dayLong = (d) => { const [y, m, dd] = d.split('-').map(Number); return new Date(Date.UTC(y, m - 1, dd)).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }); };
+
+  function tiles(st) {
+    const now = Date.now();
+    const t = [];
+    const f = st.last_feed;
+    t.push(['Last feed', f ? span(now - new Date(f.start_at)) : '—', f ? `ago · ${clock(f.start_at)}` : 'nothing logged']);
+    const s = st.sleep;
+    if (s && s.ongoing) t.push(['Asleep', span(now - new Date(s.start_at)), `since ${clock(s.start_at)}`]);
+    else if (s && s.end_at) t.push(['Awake', span(now - new Date(s.end_at)), `since ${clock(s.end_at)}`]);
+    else t.push(['Sleep', '—', 'nothing logged']);
+    const d = st.last_diaper;
+    const kind = d && d.detail ? [d.detail.wet && 'wet', d.detail.dirty && 'dirty'].filter(Boolean).join(' + ') : '';
+    t.push(['Last diaper', d ? span(now - new Date(d.start_at)) : '—', d ? `ago${kind ? ' · ' + kind : ''}` : 'nothing logged']);
+    return t.map(([k, v, s2]) => `<div class="tile"><div class="k">${k}</div><div class="v">${esc(v)}</div><div class="s">${esc(s2)}</div></div>`).join('');
+  }
+
+  function averages(a3, a7) {
+    const n = (v) => (v == null ? '—' : String(+v));
+    const cell = (a, fmt) => (a.days_with_data ? fmt(a) : '—');
+    const rows = [
+      ['Sleep', (a) => hrs(a.sleep_min)],
+      ['Night (7pm–7am)', (a) => hrs(a.night_sleep_min)],
+      ['Longest stretch', (a) => hrs(a.longest_stretch_min)],
+      ['Naps', (a) => n(a.naps)],
+      ['Feeds', (a) => n(a.feeds)],
+      ['Wet / dirty', (a) => `${n(a.wet)} / ${n(a.dirty)}`],
+    ];
+    return `<table><tr><th></th><th>Last 3 days</th><th>Last 7 days</th></tr>${
+      rows.map(([label, fmt]) => `<tr><td>${label}</td><td>${cell(a3, fmt)}</td><td>${cell(a7, fmt)}</td></tr>`).join('')}</table>`;
+  }
+
+  function grid(days, today) {
+    const wrap = $('#grid');
+    const W = wrap.clientWidth;
+    const labelW = 50, top = 18, rowH = 13, gap = 2;
+    const cell = (W - labelW) / 48;
+    const rows = [...days].reverse();
+    const H = top + rows.length * rowH;
+    const nowCell = (() => {
+      const start = new Date(today + 'T19:00:00+08:00').getTime() - 864e5;
+      return Math.floor((Date.now() - start) / 1800000);
+    })();
+    let s = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Sleep grid, one row per day, newest at the top">`;
+    ['7pm', '11pm', '3am', '7am', '11am', '3pm'].forEach((l, i) => {
+      const x = labelW + i * 8 * cell;
+      s += `<text x="${x}" y="11">${l}</text>`;
+    });
+    const spine = labelW + 24 * cell;
+    s += `<line x1="${spine}" x2="${spine}" y1="${top - 3}" y2="${H}" stroke="var(--line)" stroke-width="1"/>`;
+    rows.forEach((d, r) => {
+      const y = top + r * rowH;
+      const isToday = d.row_date === today;
+      s += `<text x="0" y="${y + rowH - 3}"${isToday ? ' style="fill:var(--text)"' : ''}>${isToday ? 'Today' : day(d.row_date)}</text>`;
+      s += `<rect x="${labelW}" y="${y}" width="${W - labelW}" height="${rowH - gap}" rx="2" fill="var(--line)" opacity="0.35"/>`;
+      if (d.source === 'none') return;
+      const colour = d.source === 'paper' ? 'var(--sleep)' : 'var(--sleep-tap)';
+      let i = 0;
+      while (i < 48) {
+        if (d.sleep[i] === 'S') {
+          let j = i;
+          while (j < 48 && d.sleep[j] === 'S') j++;
+          s += `<rect x="${labelW + i * cell + 0.5}" y="${y}" width="${(j - i) * cell - 1}" height="${rowH - gap}" rx="2" fill="${colour}"/>`;
+          i = j;
+        } else i++;
+      }
+      (d.feed_cells || []).forEach((c) => {
+        if (isToday && c > nowCell) return;
+        s += `<circle cx="${labelW + (c + 0.5) * cell}" cy="${y + (rowH - gap) / 2}" r="${Math.min(cell, rowH) / 3.2}" fill="var(--feed)"/>`;
+      });
+    });
+    s += '</svg>';
+    wrap.innerHTML = s;
+  }
+
+  function render() {
+    const { baby, status, days, avg3, avg7, today } = data;
+    const paperTo = status.last_paper_row;
+    $('#app').innerHTML = `
+      <h1>${esc(baby.name)}</h1>
+      ${baby.age ? `<p class="age">${esc(baby.age)}</p>` : ''}
+      <h2>Right now</h2>
+      <div class="tiles" id="tiles">${tiles(status)}</div>
+      <p class="note">${paperTo ? `Notebook scanned up to ${esc(dayLong(paperTo))}. Anything later is from quick taps.` : 'No notebook pages scanned yet. Showing quick taps.'}</p>
+      <h2>Daily averages</h2>
+      ${averages(avg3, avg7)}
+      <p class="note">${avg7.days_with_data ? `Based on ${avg7.days_with_data} of the last 7 days that have a log.` : 'Averages appear once a few days are logged.'} Days run 7pm to 7pm.</p>
+      <h2>Sleep, last 4 weeks</h2>
+      <div class="grid-wrap"><div id="grid"></div>
+        <div class="legend"><span><i style="background:var(--sleep)"></i>Asleep (notebook)</span><span><i style="background:var(--sleep-tap)"></i>Asleep (taps)</span><span><i style="background:var(--feed);border-radius:50%"></i>Feed</span></div>
+      </div>
+      <h2>For the doctor</h2>
+      <button id="doc">Send a 14-day summary to my chat</button>
+      <p class="status" id="docStatus"></p>`;
+    grid(days, today);
+    $('#doc').onclick = async () => {
+      const b = $('#doc');
+      b.disabled = true; $('#docStatus').textContent = 'Sending…';
+      try {
+        const r = await api('doctor-summary');
+        $('#docStatus').textContent = r.ok ? 'Sent to your chat ✓' : "Couldn't send that. Try again?";
+        if (r.ok && tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      } catch { $('#docStatus').textContent = "Couldn't send that. Try again?"; }
+      b.disabled = false;
+    };
+  }
+
+  async function load() {
+    try {
+      const r = await api('dashboard');
+      if (r.status === 401) { $('#app').innerHTML = '<p class="empty">Open this from the Sakina chat.</p>'; return; }
+      if (r.status === 404) { $('#app').innerHTML = '<p class="empty">No baby profile yet. Send /newbaby in the chat to start.</p>'; return; }
+      data = await r.json();
+      render();
+    } catch (e) {
+      if (!data) $('#app').innerHTML = "<p class=\"empty\">Couldn't load the log. Check your connection and reopen.</p>";
+    }
+  }
+
+  window.addEventListener('resize', () => data && grid(data.days, data.today));
+  setInterval(() => { if (data) $('#tiles').innerHTML = tiles(data.status); }, 30000);
+  setInterval(load, 5 * 60000);
+  load();
+})();
+</script>
+</body>
+</html>
