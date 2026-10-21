@@ -828,7 +828,18 @@ export function registerTapLog(bot, { supabase, queries }) {
         } else {
           const { error } = await insertAt(baby, ctx, { kind: 'sleep', end_at: null }, ts);
           if (error && error.code !== '23505') throw error;
-          note = `😴 Asleep at ${clock(ts)}`;
+          // Look for events already logged after ts that should have closed this sleep
+          const tsIso = ts instanceof Date ? ts.toISOString() : ts;
+          const { data: nextCloser } = await supabase.from('baby_events')
+            .select('start_at').eq('baby_id', baby.id)
+            .in('kind', ['feed', 'diaper']).gt('start_at', tsIso)
+            .order('start_at', { ascending: true }).limit(1).maybeSingle();
+          if (nextCloser) {
+            await closeSleep(baby.id, new Date(nextCloser.start_at));
+            note = `😴 Asleep ${clock(ts)} → ☀️ ${clock(nextCloser.start_at)}`;
+          } else {
+            note = `😴 Asleep at ${clock(ts)}`;
+          }
         }
       } else {
         const detailMap = {

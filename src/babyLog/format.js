@@ -217,6 +217,10 @@ export function nightStatusLine(st, now = new Date(), birthDate = null) {
   else if (fd?.type === 'formula') icon = '🍶';
   let text = `${icon} ${span(sinceLastFeed)} ago · ${clock(st.last_feed.start_at)}`;
   if (st?.sleep?.ongoing) text += `\n😴 asleep ${span(now - new Date(st.sleep.start_at))}`;
+  const nextAt = new Date(st.last_feed.start_at).getTime() + 3 * 3600 * 1000;
+  text += nextAt > now.getTime()
+    ? `\n⏰ feed by ${clock(new Date(nextAt))}`
+    : `\n⏰ feed overdue`;
   if (birthDate) {
     const ageDays = (now - new Date(birthDate)) / 86400000;
     if (ageDays <= 14 && sinceLastFeed > 3 * 3600 * 1000)
