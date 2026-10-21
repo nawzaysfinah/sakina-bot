@@ -487,7 +487,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     if (error) console.error('closeSleep failed', error);
   }
 
-  // ── Pinned /log message helpers ───────────────────────────────────────────────
+  // ── Pinned message helpers (/log and /dashboard) ─────────────────────────────
 
   async function getStoredLogMsg(userId) {
     const { data } = await supabase.from('user_log_messages')
@@ -498,6 +498,28 @@ export function registerTapLog(bot, { supabase, queries }) {
   async function storeLogMsg(userId, chatId, messageId) {
     await supabase.from('user_log_messages').upsert(
       { user_id: userId, chat_id: chatId, message_id: messageId, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    );
+  }
+
+  async function getStoredDashMsg(userId) {
+    const { data } = await supabase.from('user_log_messages')
+      .select('dash_chat_id, dash_message_id').eq('user_id', userId).maybeSingle();
+    return data?.dash_message_id ? { chat_id: data.dash_chat_id, message_id: data.dash_message_id } : null;
+  }
+
+  async function storeDashMsg(userId, chatId, messageId) {
+    const { data: existing } = await supabase.from('user_log_messages')
+      .select('chat_id, message_id').eq('user_id', userId).maybeSingle();
+    await supabase.from('user_log_messages').upsert(
+      {
+        user_id:         userId,
+        chat_id:         existing?.chat_id    ?? chatId,
+        message_id:      existing?.message_id ?? messageId,
+        dash_chat_id:    chatId,
+        dash_message_id: messageId,
+        updated_at:      new Date().toISOString(),
+      },
       { onConflict: 'user_id' }
     );
   }
@@ -552,7 +574,12 @@ export function registerTapLog(bot, { supabase, queries }) {
     const baby = await q.babyFor(ctx.from.id);
     if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD (or /joinbaby CODE).');
     const { text, kb } = await sendLogsView(ctx, baby, currentSgtDate());
-    return ctx.reply(text, { parse_mode: 'Markdown', ...kb });
+    const stored = await getStoredDashMsg(ctx.from.id);
+    if (stored && stored.chat_id === ctx.chat.id) {
+      ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
+    }
+    const sent = await ctx.reply(text, { parse_mode: 'Markdown', ...kb });
+    await storeDashMsg(ctx.from.id, ctx.chat.id, sent.message_id);
   });
 
   bot.action(/^logs:date:(\d{4}-\d{2}-\d{2})$/, async (ctx) => {
@@ -667,7 +694,13 @@ export function registerTapLog(bot, { supabase, queries }) {
       const baby = await q.babyFor(ctx.from.id);
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
       const { text: dashText, kb } = await sendLogsView(ctx, baby, currentSgtDate());
-      return ctx.reply(dashText, { parse_mode: 'Markdown', ...kb });
+      const stored = await getStoredDashMsg(ctx.from.id);
+      if (stored && stored.chat_id === ctx.chat.id) {
+        ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
+      }
+      const sent = await ctx.reply(dashText, { parse_mode: 'Markdown', ...kb });
+      await storeDashMsg(ctx.from.id, ctx.chat.id, sent.message_id);
+      return;
     }
 
     // ── Note text input ───────────────────────────────────────────────────────
@@ -795,7 +828,18 @@ export function registerTapLog(bot, { supabase, queries }) {
         } else {
           const { error } = await insertAt(baby, ctx, { kind: 'sleep', end_at: null }, ts);
           if (error && error.code !== '23505') throw error;
-          note = `😴 Asleep at ${clock(ts)}`;
+          // Look for events already logged after ts that should have closed this sleep
+          const tsIso = ts instanceof Date ? ts.toISOString() : ts;
+          const { data: nextCloser } = await supabase.from('baby_events')
+            .select('start_at').eq('baby_id', baby.id)
+            .in('kind', ['feed', 'diaper']).gt('start_at', tsIso)
+            .order('start_at', { ascending: true }).limit(1).maybeSingle();
+          if (nextCloser) {
+            await closeSleep(baby.id, new Date(nextCloser.start_at));
+            note = `😴 Asleep ${clock(ts)} → ☀️ ${clock(nextCloser.start_at)}`;
+          } else {
+            note = `😴 Asleep at ${clock(ts)}`;
+          }
         }
       } else {
         const detailMap = {

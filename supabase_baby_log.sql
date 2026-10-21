@@ -288,13 +288,20 @@ returns boolean language sql as $$
   select exists (select 1 from ins)
 $$;
 
--- Tracks the one live /log message per user for editing in-place.
+-- Tracks the one live /log message and one live /dashboard message per user.
 create table if not exists user_log_messages (
-  user_id    bigint primary key,
-  chat_id    bigint not null,
-  message_id bigint not null,
-  updated_at timestamptz default now()
+  user_id          bigint primary key,
+  chat_id          bigint not null,
+  message_id       bigint not null,
+  dash_chat_id     bigint,
+  dash_message_id  bigint,
+  updated_at       timestamptz default now()
 );
+
+-- Add dashboard columns to existing deployments.
+alter table user_log_messages
+  add column if not exists dash_chat_id    bigint,
+  add column if not exists dash_message_id bigint;
 
 -- ── BLOCK 4: RLS (service-role key bypasses this; protects anon access) ───────
 
