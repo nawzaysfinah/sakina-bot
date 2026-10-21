@@ -199,9 +199,20 @@ function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = n
     return `\`${t}\`  ${label}`;
   });
 
+  let nextFeedLine = '';
+  if (isToday) {
+    const lastFeed = events.filter(e => e.kind === 'feed').at(-1);
+    if (lastFeed) {
+      const nextAt = new Date(lastFeed.start_at).getTime() + 3 * 3600 * 1000;
+      nextFeedLine = nextAt > now.getTime()
+        ? `\n\n⏰ feed by ${clockInTz(new Date(nextAt), tz)}`
+        : `\n\n⏰ feed overdue`;
+    }
+  }
+
   const header = isToday ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
   const summaryBlock = summary ? `${summary}\n\n` : '';
-  return `${header}\n\n${summaryBlock}${lines.join('\n')}`;
+  return `${header}\n\n${summaryBlock}${lines.join('\n')}${nextFeedLine}`;
 }
 
 function formatPeriodSummary(rows, babyName, days) {
