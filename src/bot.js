@@ -73,27 +73,6 @@ bot.on(message('text'), ctx => handleMessage(ctx));
 
 bot.on('callback_query', ctx => handleCallback(ctx));
 
-// ── Register command menu (shown in Telegram's "/" menu) ───────────────────────
-
-bot.telegram.setMyCommands([
-  { command: 'today',     description: "📋 See today's tasks" },
-  { command: 'tip',       description: '💡 Get a wellness tip for today' },
-  { command: 'week',      description: '📅 See your current week or day summary' },
-  { command: 'progress',  description: '📊 See completion count + streak' },
-  { command: 'switch',    description: '🔄 Switch mode (Prepare / Recover / Tumbuh)' },
-  { command: 'log',       description: '📔 Baby log: quick-tap feed / sleep / diaper' },
-  { command: 'scan',      description: '📷 Scan the notebook page' },
-  { command: 'dashboard', description: '📊 Open the baby log dashboard' },
-  { command: 'newbaby',   description: '🤍 Set up a baby profile' },
-  { command: 'reminders', description: '📌 View and manage your reminders' },
-  { command: 'urgent',    description: '🚨 Emergency danger signs & contacts' },
-  { command: 'undo',      description: '↩️ Unmark last logged task' },
-  { command: 'share',     description: '🔗 Share your journal with partner/doula' },
-  { command: 'about',     description: 'ℹ️ What is Sakina?' },
-  { command: 'reset',     description: '⚠️ Reset your profile and start fresh' },
-  { command: 'start',     description: '▶️ Restart onboarding' },
-]);
-
 // ── Start bot ──────────────────────────────────────────────────────────────────
 
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
@@ -102,6 +81,26 @@ const PORT        = parseInt(process.env.PORT || '3000', 10);
 async function start() {
   // Start scheduler (daily briefings + health checks)
   initScheduler(bot, { babyLog, supabase });
+
+  // Register command menu inside start() so failures are caught and logged
+  await bot.telegram.setMyCommands([
+    { command: 'today',     description: "📋 See today's tasks" },
+    { command: 'tip',       description: '💡 Get a wellness tip for today' },
+    { command: 'week',      description: '📅 See your current week or day summary' },
+    { command: 'progress',  description: '📊 See completion count + streak' },
+    { command: 'switch',    description: '🔄 Switch mode (Prepare / Recover / Tumbuh)' },
+    { command: 'log',       description: '📔 Baby log: quick-tap feed / sleep / diaper' },
+    { command: 'scan',      description: '📷 Scan the notebook page' },
+    { command: 'dashboard', description: '📊 Open the baby log dashboard' },
+    { command: 'newbaby',   description: '🤍 Set up a baby profile' },
+    { command: 'reminders', description: '📌 View and manage your reminders' },
+    { command: 'urgent',    description: '🚨 Emergency danger signs & contacts' },
+    { command: 'undo',      description: '↩️ Unmark last logged task' },
+    { command: 'share',     description: '🔗 Share your journal with partner/doula' },
+    { command: 'about',     description: 'ℹ️ What is Sakina?' },
+    { command: 'reset',     description: '⚠️ Reset your profile and start fresh' },
+    { command: 'start',     description: '▶️ Restart onboarding' },
+  ]).catch(err => console.warn('setMyCommands failed (non-fatal):', err.message));
 
   if (WEBHOOK_URL) {
     // ── Webhook mode (production) ────────────────────────────────────────────
