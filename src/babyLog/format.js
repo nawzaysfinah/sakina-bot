@@ -179,13 +179,11 @@ export function statusLine(st, now = new Date(), birthDate = null, caregiverName
   let nextFeedLine = '';
   if (st?.last_feed) {
     if (feedWindow) {
-      const e = new Date(feedWindow.earliestMs);
-      const l = new Date(feedWindow.latestMs);
-      nextFeedLine = feedWindow.latestMs > now.getTime()
-        ? `\n\n🔮 Next feed: ${clock(e)}–${clock(l)}`
-        : `\n\n⏰ Feed overdue`;
-      if (feedWindow.needsWake)
-        nextFeedLine += `\n⚠️ Wake by ${clock(new Date(feedWindow.hardCapMs))} if sleeping`;
+      const pred = new Date(feedWindow.predictedMs);
+      const cap  = new Date(feedWindow.hardCapMs);
+      nextFeedLine = feedWindow.predictedMs > now.getTime()
+        ? `\n\n🔮 ~${clock(pred)}\n⏰ by ${clock(cap)}`
+        : `\n\n⏰ Feed overdue · wake by ${clock(cap)}`;
     } else {
       const nextAt = new Date(st.last_feed.start_at).getTime() + 3 * 3600 * 1000;
       nextFeedLine = nextAt > now.getTime()
@@ -227,13 +225,11 @@ export function nightStatusLine(st, now = new Date(), birthDate = null, feedWind
   let text = `${icon} ${span(sinceLastFeed)} ago · ${clock(st.last_feed.start_at)}`;
   if (st?.sleep?.ongoing) text += `\n😴 asleep ${span(now - new Date(st.sleep.start_at))}`;
   if (feedWindow) {
-    const e = new Date(feedWindow.earliestMs);
-    const l = new Date(feedWindow.latestMs);
-    text += feedWindow.latestMs > now.getTime()
-      ? `\n🔮 ${clock(e)}–${clock(l)}`
-      : `\n⏰ Feed overdue`;
-    if (feedWindow.needsWake)
-      text += `\n⚠️ Wake by ${clock(new Date(feedWindow.hardCapMs))}`;
+    const pred = new Date(feedWindow.predictedMs);
+    const cap  = new Date(feedWindow.hardCapMs);
+    text += feedWindow.predictedMs > now.getTime()
+      ? `\n🔮 ~${clock(pred)}\n⏰ by ${clock(cap)}`
+      : `\n⏰ Feed overdue · wake by ${clock(cap)}`;
   } else {
     const nextAt = new Date(st.last_feed.start_at).getTime() + 3 * 3600 * 1000;
     text += nextAt > now.getTime()

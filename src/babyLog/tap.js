@@ -205,18 +205,15 @@ function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = n
     const lastFeed = events.filter(e => e.kind === 'feed').at(-1);
     if (lastFeed) {
       if (feedWindow) {
-        const e  = new Date(feedWindow.earliestMs);
-        const l  = new Date(feedWindow.latestMs);
+        const pred  = new Date(feedWindow.predictedMs);
+        const cap   = new Date(feedWindow.hardCapMs);
         const nowMs = now.getTime();
-        if (feedWindow.latestMs > nowMs) {
-          const diffMs = feedWindow.earliestMs - nowMs;
-          const inStr  = diffMs > 0 ? `In ${span(diffMs)}` : 'Due now';
-          nextFeedLine = `\n\n🔮 Next feed: ${inStr} (${clockInTz(e, tz)}–${clockInTz(l, tz)})`;
+        if (feedWindow.predictedMs > nowMs) {
+          const inStr = `In ${span(feedWindow.predictedMs - nowMs)}`;
+          nextFeedLine = `\n\n🔮 ~${clockInTz(pred, tz)} (${inStr})\n⏰ by ${clockInTz(cap, tz)}`;
         } else {
-          nextFeedLine = `\n\n⏰ Feed overdue (was ${clockInTz(e, tz)}–${clockInTz(l, tz)})`;
+          nextFeedLine = `\n\n⏰ Feed overdue · wake by ${clockInTz(cap, tz)}`;
         }
-        if (feedWindow.needsWake)
-          nextFeedLine += `\n⚠️ Wake by ${clockInTz(new Date(feedWindow.hardCapMs), tz)} if sleeping`;
       } else {
         const nextAt = new Date(lastFeed.start_at).getTime() + 3 * 3600 * 1000;
         nextFeedLine = nextAt > now.getTime()

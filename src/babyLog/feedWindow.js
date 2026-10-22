@@ -78,5 +78,6 @@ export async function fetchFeedWindow(babyId, feedDetail, feedTime, supabase) {
   const needsWake  = latestRaw > hardCapMs;
   const latestMs   = needsWake ? hardCapMs : latestRaw;
 
-  return { earliestMs, latestMs, hardCapMs, needsWake, predictedH, trendH, volH };
+  const predictedMs = feedMs + predictedH * 3600000;
+  return { predictedMs, hardCapMs, needsWake, predictedH, trendH, volH };
 }
