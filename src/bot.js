@@ -105,7 +105,18 @@ async function start() {
   if (WEBHOOK_URL) {
     // ── Webhook mode (production) ────────────────────────────────────────────
     const webhookPath = `/bot${process.env.BOT_TOKEN}`;
-    await bot.telegram.setWebhook(`${WEBHOOK_URL}${webhookPath}`);
+    const fullUrl = `${WEBHOOK_URL}${webhookPath}`;
+
+    // drop_pending_updates clears any queued updates that failed while the
+    // bot was down — prevents a flood of stale messages on restart.
+    await bot.telegram.setWebhook(fullUrl, { drop_pending_updates: true });
+
+    // Confirm Telegram accepted the webhook
+    const info = await bot.telegram.getWebhookInfo();
+    console.log(`✅ Webhook registered: ${info.url}`);
+    if (info.last_error_message) {
+      console.warn(`⚠️  Last webhook error: ${info.last_error_message} (${new Date(info.last_error_date * 1000).toISOString()})`);
+    }
 
     const webhookHandler = bot.webhookCallback(webhookPath);
     const server = http.createServer((req, res) => {
@@ -122,7 +133,7 @@ async function start() {
     });
     server.listen(PORT, () => {
       console.log(`🤖 Sakina bot started via webhook on port ${PORT}`);
-      console.log(`   Webhook: ${WEBHOOK_URL}${webhookPath}`);
+      console.log(`   Webhook: ${fullUrl}`);
       if (process.env.MINIAPP_URL) console.log(`   Mini App: ${process.env.MINIAPP_URL}`);
     });
   } else {
