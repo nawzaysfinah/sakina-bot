@@ -257,21 +257,28 @@ returns jsonb language sql stable as $$
       ) x
     ),
     'today', jsonb_build_object(
+      -- "today" = SGT calendar day (midnight-to-midnight), NOT the 7pm row-date boundary
       'feeds',     (select count(*)::int from e
-                    where kind = 'feed' and sgt_row_date(start_at) = sgt_row_date(now())),
+                    where kind = 'feed'
+                    and (start_at at time zone 'Asia/Singapore')::date = (now() at time zone 'Asia/Singapore')::date),
       'sleep_min', (select coalesce(sum(extract(epoch from (coalesce(end_at, now()) - start_at)) / 60)::int, 0)
-                    from e where kind = 'sleep' and sgt_row_date(start_at) = sgt_row_date(now())),
+                    from e where kind = 'sleep'
+                    and (start_at at time zone 'Asia/Singapore')::date = (now() at time zone 'Asia/Singapore')::date),
       'wet',       (select count(*)::int from e
-                    where kind = 'diaper' and sgt_row_date(start_at) = sgt_row_date(now())
+                    where kind = 'diaper'
+                    and (start_at at time zone 'Asia/Singapore')::date = (now() at time zone 'Asia/Singapore')::date
                     and (detail->>'wet')::boolean = true),
       'dirty',     (select count(*)::int from e
-                    where kind = 'diaper' and sgt_row_date(start_at) = sgt_row_date(now())
+                    where kind = 'diaper'
+                    and (start_at at time zone 'Asia/Singapore')::date = (now() at time zone 'Asia/Singapore')::date
                     and (detail->>'dirty')::boolean = true),
       'ml',        (select coalesce(sum((detail->>'amount_ml')::numeric), 0)::int from e
-                    where kind = 'feed' and sgt_row_date(start_at) = sgt_row_date(now())
+                    where kind = 'feed'
+                    and (start_at at time zone 'Asia/Singapore')::date = (now() at time zone 'Asia/Singapore')::date
                     and detail->>'amount_ml' is not null),
       'latch_min', (select coalesce(sum((detail->>'duration_min')::numeric), 0)::int from e
-                    where kind = 'feed' and sgt_row_date(start_at) = sgt_row_date(now())
+                    where kind = 'feed'
+                    and (start_at at time zone 'Asia/Singapore')::date = (now() at time zone 'Asia/Singapore')::date
                     and detail->>'type' = 'latch'
                     and detail->>'duration_min' is not null)
     )

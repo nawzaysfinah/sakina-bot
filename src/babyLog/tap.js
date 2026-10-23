@@ -6,6 +6,7 @@
 import { Markup } from 'telegraf';
 import { clock, span, statusLine, nightStatusLine, currentRowDateStr, addDays, dayLabel, hrs } from './format.js';
 import { setFeedReminder, clearFeedReminder, getFeedReminder, setAutoFeedReminders, clearAutoFeedReminders } from './feedReminder.js';
+import { fetchFeedWindow } from './feedWindow.js';
 
 const UNDO_MINUTES  = 30;
 const RETRO_TTL_MS  = 3 * 60 * 1000;  // 3 min to tap/type a structured value before pending expires
@@ -157,7 +158,7 @@ function daySummary(events, now) {
   return parts.join('  ');
 }
 
-function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = new Date(), tz = 'Asia/Singapore') {
+function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = new Date(), tz = 'Asia/Singapore', feedWindow = null) {
   const isToday = rowDate === currentSgtDate(now);
   if (!events?.length) {
     const header = isToday ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
@@ -199,9 +200,32 @@ function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = n
     return `\`${t}\`  ${label}`;
   });
 
+  let nextFeedLine = '';
+  if (isToday) {
+    const lastFeed = events.filter(e => e.kind === 'feed').at(-1);
+    if (lastFeed) {
+      if (feedWindow) {
+        const pred  = new Date(feedWindow.predictedMs);
+        const cap   = new Date(feedWindow.hardCapMs);
+        const nowMs = now.getTime();
+        if (feedWindow.predictedMs > nowMs) {
+          const inStr = `In ${span(feedWindow.predictedMs - nowMs)}`;
+          nextFeedLine = `\n\n🔮 ~${clockInTz(pred, tz)} (${inStr})\n⏰ by ${clockInTz(cap, tz)}`;
+        } else {
+          nextFeedLine = `\n\n⏰ Feed overdue · wake by ${clockInTz(cap, tz)}`;
+        }
+      } else {
+        const nextAt = new Date(lastFeed.start_at).getTime() + 3 * 3600 * 1000;
+        nextFeedLine = nextAt > now.getTime()
+          ? `\n\n⏰ feed by ${clockInTz(new Date(nextAt), tz)}`
+          : `\n\n⏰ feed overdue`;
+      }
+    }
+  }
+
   const header = isToday ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
   const summaryBlock = summary ? `${summary}\n\n` : '';
-  return `${header}\n\n${summaryBlock}${lines.join('\n')}`;
+  return `${header}\n\n${summaryBlock}${lines.join('\n')}${nextFeedLine}`;
 }
 
 function formatPeriodSummary(rows, babyName, days) {
@@ -416,9 +440,14 @@ export function registerTapLog(bot, { supabase, queries }) {
       q.status(baby.id),
       caregiverNames(baby.id, ctx.from.id),
     ]);
-    const now   = new Date();
+    const now = new Date();
+    const fw  = st?.last_feed
+      ? await fetchFeedWindow(baby.id, st.last_feed.detail, new Date(st.last_feed.start_at), supabase)
+      : null;
     const timer = latchTimerLine(ctx.from.id, now);
-    const sl    = isSgtNight(now) ? nightStatusLine(st, now, baby.birth_date) : statusLine(st, now, baby.birth_date, names);
+    const sl    = isSgtNight(now)
+      ? nightStatusLine(st, now, baby.birth_date, fw)
+      : statusLine(st, now, baby.birth_date, names, fw);
     const status = timer ? `${timer}\n${sl}` : sl;
     const text  = `${baby.name} · ${clock(now)}\n\n${status}${note ? `\n\n✓ ${note}` : ''}`;
     const lSide = activeLatch.get(String(ctx.from.id))?.side;
@@ -546,6 +575,8 @@ export function registerTapLog(bot, { supabase, queries }) {
   }
 
   async function sendLogsView(ctx, baby, dateStr) {
+    const now        = new Date();
+    const isToday    = dateStr === currentSgtDate(now);
     const { start, end } = dayBoundsUtc(dateStr);
     const [{ data: events }, tz] = await Promise.all([
       supabase.from('baby_events_effective')
@@ -556,7 +587,12 @@ export function registerTapLog(bot, { supabase, queries }) {
         .order('start_at', { ascending: true }),
       getUserTz(ctx.from.id),
     ]);
-    const text = formatTodayEvents(events, baby.name, dateStr, new Date(), tz);
+    let fw = null;
+    if (isToday && events?.length) {
+      const lastFeed = [...events].reverse().find(e => e.kind === 'feed');
+      if (lastFeed) fw = await fetchFeedWindow(baby.id, lastFeed.detail, new Date(lastFeed.start_at), supabase);
+    }
+    const text = formatTodayEvents(events, baby.name, dateStr, now, tz, fw);
     const kb   = logsNavKeyboard(dateStr);
     return { text, kb };
   }

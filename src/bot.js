@@ -73,27 +73,6 @@ bot.on(message('text'), ctx => handleMessage(ctx));
 
 bot.on('callback_query', ctx => handleCallback(ctx));
 
-// ── Register command menu (shown in Telegram's "/" menu) ───────────────────────
-
-bot.telegram.setMyCommands([
-  { command: 'today',     description: "📋 See today's tasks" },
-  { command: 'tip',       description: '💡 Get a wellness tip for today' },
-  { command: 'week',      description: '📅 See your current week or day summary' },
-  { command: 'progress',  description: '📊 See completion count + streak' },
-  { command: 'switch',    description: '🔄 Switch mode (Prepare / Recover / Tumbuh)' },
-  { command: 'log',       description: '📔 Baby log: quick-tap feed / sleep / diaper' },
-  { command: 'scan',      description: '📷 Scan the notebook page' },
-  { command: 'dashboard', description: '📊 Open the baby log dashboard' },
-  { command: 'newbaby',   description: '🤍 Set up a baby profile' },
-  { command: 'reminders', description: '📌 View and manage your reminders' },
-  { command: 'urgent',    description: '🚨 Emergency danger signs & contacts' },
-  { command: 'undo',      description: '↩️ Unmark last logged task' },
-  { command: 'share',     description: '🔗 Share your journal with partner/doula' },
-  { command: 'about',     description: 'ℹ️ What is Sakina?' },
-  { command: 'reset',     description: '⚠️ Reset your profile and start fresh' },
-  { command: 'start',     description: '▶️ Restart onboarding' },
-]);
-
 // ── Start bot ──────────────────────────────────────────────────────────────────
 
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
@@ -103,10 +82,41 @@ async function start() {
   // Start scheduler (daily briefings + health checks)
   initScheduler(bot, { babyLog, supabase });
 
+  // Register command menu inside start() so failures are caught and logged
+  await bot.telegram.setMyCommands([
+    { command: 'today',     description: "📋 See today's tasks" },
+    { command: 'tip',       description: '💡 Get a wellness tip for today' },
+    { command: 'week',      description: '📅 See your current week or day summary' },
+    { command: 'progress',  description: '📊 See completion count + streak' },
+    { command: 'switch',    description: '🔄 Switch mode (Prepare / Recover / Tumbuh)' },
+    { command: 'log',       description: '📔 Baby log: quick-tap feed / sleep / diaper' },
+    { command: 'scan',      description: '📷 Scan the notebook page' },
+    { command: 'dashboard', description: '📊 Open the baby log dashboard' },
+    { command: 'newbaby',   description: '🤍 Set up a baby profile' },
+    { command: 'reminders', description: '📌 View and manage your reminders' },
+    { command: 'urgent',    description: '🚨 Emergency danger signs & contacts' },
+    { command: 'undo',      description: '↩️ Unmark last logged task' },
+    { command: 'share',     description: '🔗 Share your journal with partner/doula' },
+    { command: 'about',     description: 'ℹ️ What is Sakina?' },
+    { command: 'reset',     description: '⚠️ Reset your profile and start fresh' },
+    { command: 'start',     description: '▶️ Restart onboarding' },
+  ]).catch(err => console.warn('setMyCommands failed (non-fatal):', err.message));
+
   if (WEBHOOK_URL) {
     // ── Webhook mode (production) ────────────────────────────────────────────
     const webhookPath = `/bot${process.env.BOT_TOKEN}`;
-    await bot.telegram.setWebhook(`${WEBHOOK_URL}${webhookPath}`);
+    const fullUrl = `${WEBHOOK_URL}${webhookPath}`;
+
+    // drop_pending_updates clears any queued updates that failed while the
+    // bot was down — prevents a flood of stale messages on restart.
+    await bot.telegram.setWebhook(fullUrl, { drop_pending_updates: true });
+
+    // Confirm Telegram accepted the webhook
+    const info = await bot.telegram.getWebhookInfo();
+    console.log(`✅ Webhook registered: ${info.url}`);
+    if (info.last_error_message) {
+      console.warn(`⚠️  Last webhook error: ${info.last_error_message} (${new Date(info.last_error_date * 1000).toISOString()})`);
+    }
 
     const webhookHandler = bot.webhookCallback(webhookPath);
     const server = http.createServer((req, res) => {
@@ -123,7 +133,7 @@ async function start() {
     });
     server.listen(PORT, () => {
       console.log(`🤖 Sakina bot started via webhook on port ${PORT}`);
-      console.log(`   Webhook: ${WEBHOOK_URL}${webhookPath}`);
+      console.log(`   Webhook: ${fullUrl}`);
       if (process.env.MINIAPP_URL) console.log(`   Mini App: ${process.env.MINIAPP_URL}`);
     });
   } else {

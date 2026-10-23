@@ -130,7 +130,7 @@ export function ageText(birthDate, now = new Date()) {
     : `${w} week${w === 1 ? '' : 's'}${days % 7 ? ` ${days % 7} day${days % 7 === 1 ? '' : 's'}` : ''} old`;
 }
 
-export function statusLine(st, now = new Date(), birthDate = null, caregiverNames = null) {
+export function statusLine(st, now = new Date(), birthDate = null, caregiverNames = null, feedWindow = null) {
   const byName = (userId) => caregiverNames && userId ? caregiverNames[String(userId)] || null : null;
   const today  = st?.today || {};
   const parts  = [];
@@ -176,13 +176,20 @@ export function statusLine(st, now = new Date(), birthDate = null, caregiverName
 
   const statusText = parts.length ? parts.join('\n') : 'Nothing logged yet today.';
 
-  // Next feed deadline (last feed + 3h)
   let nextFeedLine = '';
   if (st?.last_feed) {
-    const nextAt = new Date(st.last_feed.start_at).getTime() + 3 * 3600 * 1000;
-    nextFeedLine = nextAt > now.getTime()
-      ? `\n\n⏰ feed by ${clock(new Date(nextAt))}`
-      : `\n\n⏰ feed overdue`;
+    if (feedWindow) {
+      const pred = new Date(feedWindow.predictedMs);
+      const cap  = new Date(feedWindow.hardCapMs);
+      nextFeedLine = feedWindow.predictedMs > now.getTime()
+        ? `\n\n🔮 ~${clock(pred)}\n⏰ by ${clock(cap)}`
+        : `\n\n⏰ Feed overdue · wake by ${clock(cap)}`;
+    } else {
+      const nextAt = new Date(st.last_feed.start_at).getTime() + 3 * 3600 * 1000;
+      nextFeedLine = nextAt > now.getTime()
+        ? `\n\n⏰ feed by ${clock(new Date(nextAt))}`
+        : `\n\n⏰ feed overdue`;
+    }
   }
 
   if (birthDate) {
@@ -203,7 +210,7 @@ export function statusLine(st, now = new Date(), birthDate = null, caregiverName
 }
 
 // Concise night-time status (10pm–6am SGT) — just what matters at 3am.
-export function nightStatusLine(st, now = new Date(), birthDate = null) {
+export function nightStatusLine(st, now = new Date(), birthDate = null, feedWindow = null) {
   if (!st?.last_feed) {
     if (!birthDate) return 'Not fed yet.';
     const ageDays = (now - new Date(birthDate)) / 86400000;
@@ -217,10 +224,18 @@ export function nightStatusLine(st, now = new Date(), birthDate = null) {
   else if (fd?.type === 'formula') icon = '🍶';
   let text = `${icon} ${span(sinceLastFeed)} ago · ${clock(st.last_feed.start_at)}`;
   if (st?.sleep?.ongoing) text += `\n😴 asleep ${span(now - new Date(st.sleep.start_at))}`;
-  const nextAt = new Date(st.last_feed.start_at).getTime() + 3 * 3600 * 1000;
-  text += nextAt > now.getTime()
-    ? `\n⏰ feed by ${clock(new Date(nextAt))}`
-    : `\n⏰ feed overdue`;
+  if (feedWindow) {
+    const pred = new Date(feedWindow.predictedMs);
+    const cap  = new Date(feedWindow.hardCapMs);
+    text += feedWindow.predictedMs > now.getTime()
+      ? `\n🔮 ~${clock(pred)}\n⏰ by ${clock(cap)}`
+      : `\n⏰ Feed overdue · wake by ${clock(cap)}`;
+  } else {
+    const nextAt = new Date(st.last_feed.start_at).getTime() + 3 * 3600 * 1000;
+    text += nextAt > now.getTime()
+      ? `\n⏰ feed by ${clock(new Date(nextAt))}`
+      : `\n⏰ feed overdue`;
+  }
   if (birthDate) {
     const ageDays = (now - new Date(birthDate)) / 86400000;
     if (ageDays <= 14 && sinceLastFeed > 3 * 3600 * 1000)

@@ -30,6 +30,17 @@ export function initScheduler(bot, { babyLog, supabase } = {}) {
   babyLogRef  = babyLog  || null;
   supabaseRef = supabase || null;
 
+  // ── Keep-alive ping every 10 min (prevents Render free tier spin-down) ────
+  // Render spins down web services after 15 min of HTTP inactivity.
+  // Telegram's webhook hits a sleeping service, times out, and disables it.
+  // Pinging our own /health URL keeps the service warm.
+  if (process.env.WEBHOOK_URL) {
+    const healthUrl = `${process.env.WEBHOOK_URL}/health`;
+    cron.schedule('*/10 * * * *', () => {
+      fetch(healthUrl).catch(() => {}); // fire-and-forget; failure is harmless
+    });
+  }
+
   // ── Hourly check — morning + evening per user's timezone ──────────────────
   cron.schedule('0 * * * *', hourlyCheck);
 
