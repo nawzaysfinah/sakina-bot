@@ -821,62 +821,23 @@ export function registerTapLog(bot, { supabase, queries }) {
     if (text === '🍼 Feed') {
       const baby = await q.babyFor(ctx.from.id);
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
-      const stored = await getStoredLogMsg(ctx.from.id);
-      if (stored && stored.chat_id === ctx.chat.id) {
-        ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
-      }
-      const last = await lastFeedDetail(baby.id);
-      if (last) pendingFeedRepeat.set(ctx.from.id, { detail: last, retroTs: null });
-      const [st, names] = await Promise.all([q.status(baby.id), caregiverNames(baby.id, ctx.from.id)]);
-      const now2 = new Date();
-      const sl   = isSgtNight(now2) ? nightStatusLine(st, now2, baby.birth_date) : statusLine(st, now2, baby.birth_date, names);
-      const sent = await ctx.reply(
-        `${baby.name} · ${clock(now2)}\n\n${sl}\n\n_What type of feed?_`,
-        { parse_mode: 'Markdown', ...feedTypeKeyboard(last) },
-      );
-      await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
+      activeLatch.delete(String(ctx.from.id));
+      await stageWhenFromText(ctx, baby, 'feed');
       return;
     }
 
     if (text === '😴 Sleep') {
       const baby = await q.babyFor(ctx.from.id);
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
-      const stored = await getStoredLogMsg(ctx.from.id);
-      if (stored && stored.chat_id === ctx.chat.id) {
-        ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
-      }
-      const open = await openSleep(baby.id);
-      let note;
-      if (open) {
-        note = `Already asleep since ${clock(open.start_at)}`;
-      } else {
-        const { error } = await insert(baby, ctx, { kind: 'sleep', end_at: null });
-        if (error && error.code !== '23505') { await ctx.reply("Sorry, couldn't save."); return; }
-        note = `Asleep from ${clock(new Date())}`;
-      }
-      const { text: t, kb } = await render(ctx, baby, note);
-      const sent = await ctx.reply(t, kb);
-      await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
+      await stageWhenFromText(ctx, baby, 'sleep');
       return;
     }
 
     if (text === '💧 Wet' || text === '💩 Dirty' || text === '💧💩 Both') {
       const baby = await q.babyFor(ctx.from.id);
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
-      const stored = await getStoredLogMsg(ctx.from.id);
-      if (stored && stored.chat_id === ctx.chat.id) {
-        ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
-      }
-      const detail = text === '💧 Wet'   ? { wet: true }
-                   : text === '💩 Dirty'  ? { dirty: true }
-                   : { wet: true, dirty: true };
-      const { error } = await insert(baby, ctx, { kind: 'diaper', detail });
-      if (error) { await ctx.reply("Sorry, couldn't save."); return; }
-      await closeSleep(baby.id, new Date());
-      const icon = text === '💧💩 Both' ? '💧💩' : text.split(' ')[0];
-      const { text: t, kb } = await render(ctx, baby, `${icon} Diaper logged`);
-      const sent = await ctx.reply(t, kb);
-      await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
+      const kind = text === '💧 Wet' ? 'wet' : text === '💩 Dirty' ? 'dirty' : 'both';
+      await stageWhenFromText(ctx, baby, kind);
       return;
     }
 
@@ -1088,6 +1049,29 @@ export function registerTapLog(bot, { supabase, queries }) {
     const messageId = ctx.callbackQuery.message.message_id;
     pendingAction.set(ctx.from.id, { kind, chatId, messageId, expiresAt: Date.now() + RETRO_TTL_MS });
     return renderWithPrompt(ctx, baby, '_When did this happen?_', whenKeyboard());
+  }
+
+  // Same gate but for persistent-keyboard text triggers (no callbackQuery to edit).
+  // Sends a new message, then tap:when:* callbacks edit it normally.
+  async function stageWhenFromText(ctx, baby, kind) {
+    pendingRetro.delete(ctx.from.id);
+    pendingNote.delete(ctx.from.id);
+    pendingAction.delete(ctx.from.id);
+    const stored = await getStoredLogMsg(ctx.from.id);
+    if (stored && stored.chat_id === ctx.chat.id) {
+      ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
+    }
+    const [st, names] = await Promise.all([q.status(baby.id), caregiverNames(baby.id, ctx.from.id)]);
+    const now2  = new Date();
+    const timer = latchTimerLine(ctx.from.id, now2);
+    const sl    = isSgtNight(now2) ? nightStatusLine(st, now2, baby.birth_date) : statusLine(st, now2, baby.birth_date, names);
+    const status = timer ? `${timer}\n${sl}` : sl;
+    const sent  = await ctx.reply(
+      `${baby.name} · ${clock(now2)}\n\n${status}\n\n_When did this happen?_`,
+      { parse_mode: 'Markdown', ...whenKeyboard() },
+    );
+    await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
+    pendingAction.set(ctx.from.id, { kind, chatId: ctx.chat.id, messageId: sent.message_id, expiresAt: Date.now() + RETRO_TTL_MS });
   }
 
   const actions = {
