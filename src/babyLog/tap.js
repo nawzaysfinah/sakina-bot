@@ -800,6 +800,24 @@ export function registerTapLog(bot, { supabase, queries }) {
 
     // ── Persistent quick-access buttons ──────────────────────────────────────
 
+    // Backwards-compat: old keyboard showed [📋 Log | 📊 Dashboard].
+    // Handle them and push the new keyboard so Telegram upgrades it.
+    const newQuickKb = Markup.keyboard([
+      ['🍼 Feed',  '😴 Sleep', '📝 Note'],
+      ['💧 Wet',   '💩 Dirty', '💧💩 Both'],
+      ['📊 Logs'],
+    ]).resize().persistent();
+
+    if (text === '📋 Log' || text === '📊 Dashboard') {
+      const baby = await q.babyFor(ctx.from.id);
+      const label = baby ? baby.name : 'your baby';
+      await ctx.reply(
+        `Keyboard updated ✓\n\nUse the new buttons below to log for ${label} 👇`,
+        newQuickKb,
+      );
+      return;
+    }
+
     if (text === '🍼 Feed') {
       const baby = await q.babyFor(ctx.from.id);
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
