@@ -746,6 +746,51 @@ export function registerTapLog(bot, { supabase, queries }) {
     } catch (e) { if (!/message is not modified/.test(e.description || e.message)) throw e; }
   });
 
+  // ── Reconciliation callbacks (evening review approve/skip) ───────────────────
+
+  bot.action(/^rec:feed:(\d+):(\d+)$/, async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return ctx.answerCbQuery('Set up a profile first');
+    const id1 = ctx.match[1], id2 = ctx.match[2];
+    const [{ data: a }, { data: b }] = await Promise.all([
+      supabase.from('baby_events').select('id, detail, start_at').eq('id', id1).eq('baby_id', baby.id).maybeSingle(),
+      supabase.from('baby_events').select('id, detail, start_at').eq('id', id2).eq('baby_id', baby.id).maybeSingle(),
+    ]);
+    if (!a || !b) return ctx.answerCbQuery('Events not found');
+    const parts   = [{ amount_ml: a.detail.amount_ml, t: a.start_at }, { amount_ml: b.detail.amount_ml, t: b.start_at }];
+    const totalMl = a.detail.amount_ml + b.detail.amount_ml;
+    await supabase.from('baby_events').update({ detail: { ...a.detail, amount_ml: totalMl, parts } }).eq('id', id1);
+    await supabase.from('baby_events').delete().eq('id', id2);
+    const icon = a.detail.type === 'formula' ? '🍶' : '🍼';
+    const t    = new Date(a.start_at).toLocaleString('en-SG', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore' }).toLowerCase().replace(/ /g, '');
+    await ctx.answerCbQuery('Merged ✓');
+    await ctx.editMessageText(`${icon} Merged: ${totalMl}ml at ${t} ✅`, { parse_mode: 'Markdown' });
+  });
+
+  bot.action(/^rec:sleep:(\d+):(\d+)$/, async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return ctx.answerCbQuery('Set up a profile first');
+    const startMs = Number(ctx.match[1]) * 1000;
+    const endMs   = Number(ctx.match[2]) * 1000;
+    const { error } = await supabase.from('baby_events').insert({
+      baby_id: baby.id, source: 'tap', logged_by: ctx.from.id,
+      kind: 'sleep', start_at: new Date(startMs).toISOString(),
+      end_at: new Date(endMs).toISOString(), precision_min: 5,
+    });
+    if (error) return ctx.answerCbQuery('Could not save — try again');
+    const gapMin = Math.round((endMs - startMs) / 60000);
+    const h = Math.floor(gapMin / 60), m = gapMin % 60;
+    const durStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    const fmt = (ms) => new Date(ms).toLocaleString('en-SG', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore' }).toLowerCase().replace(/ /g, '');
+    await ctx.answerCbQuery('Sleep logged ✓');
+    await ctx.editMessageText(`😴 Sleep logged: ${fmt(startMs)} – ${fmt(endMs)} (${durStr}) ✅`, { parse_mode: 'Markdown' });
+  });
+
+  bot.action('rec:skip', async (ctx) => {
+    await ctx.answerCbQuery('Skipped');
+    await ctx.editMessageText('_Skipped_', { parse_mode: 'Markdown' });
+  });
+
   // ── Text handler for retro time input ─────────────────────────────────────────
   // Must be registered BEFORE the general message handler.
 
@@ -754,19 +799,92 @@ export function registerTapLog(bot, { supabase, queries }) {
     if (text.startsWith('/')) return next(); // don't intercept commands
 
     // ── Persistent quick-access buttons ──────────────────────────────────────
-    if (text === '📋 Log') {
+
+    if (text === '🍼 Feed') {
       const baby = await q.babyFor(ctx.from.id);
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
-      const { text: logText, kb } = await render(ctx, baby);
       const stored = await getStoredLogMsg(ctx.from.id);
       if (stored && stored.chat_id === ctx.chat.id) {
         ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
       }
-      const sent = await ctx.reply(logText, kb);
+      const last = await lastFeedDetail(baby.id);
+      if (last) pendingFeedRepeat.set(ctx.from.id, { detail: last, retroTs: null });
+      const [st, names] = await Promise.all([q.status(baby.id), caregiverNames(baby.id, ctx.from.id)]);
+      const now2 = new Date();
+      const sl   = isSgtNight(now2) ? nightStatusLine(st, now2, baby.birth_date) : statusLine(st, now2, baby.birth_date, names);
+      const sent = await ctx.reply(
+        `${baby.name} · ${clock(now2)}\n\n${sl}\n\n_What type of feed?_`,
+        { parse_mode: 'Markdown', ...feedTypeKeyboard(last) },
+      );
       await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
       return;
     }
-    if (text === '📊 Dashboard') {
+
+    if (text === '😴 Sleep') {
+      const baby = await q.babyFor(ctx.from.id);
+      if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+      const stored = await getStoredLogMsg(ctx.from.id);
+      if (stored && stored.chat_id === ctx.chat.id) {
+        ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
+      }
+      const open = await openSleep(baby.id);
+      let note;
+      if (open) {
+        note = `Already asleep since ${clock(open.start_at)}`;
+      } else {
+        const { error } = await insert(baby, ctx, { kind: 'sleep', end_at: null });
+        if (error && error.code !== '23505') { await ctx.reply("Sorry, couldn't save."); return; }
+        note = `Asleep from ${clock(new Date())}`;
+      }
+      const { text: t, kb } = await render(ctx, baby, note);
+      const sent = await ctx.reply(t, kb);
+      await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
+      return;
+    }
+
+    if (text === '💧 Wet' || text === '💩 Dirty' || text === '💧💩 Both') {
+      const baby = await q.babyFor(ctx.from.id);
+      if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+      const stored = await getStoredLogMsg(ctx.from.id);
+      if (stored && stored.chat_id === ctx.chat.id) {
+        ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
+      }
+      const detail = text === '💧 Wet'   ? { wet: true }
+                   : text === '💩 Dirty'  ? { dirty: true }
+                   : { wet: true, dirty: true };
+      const { error } = await insert(baby, ctx, { kind: 'diaper', detail });
+      if (error) { await ctx.reply("Sorry, couldn't save."); return; }
+      await closeSleep(baby.id, new Date());
+      const icon = text === '💧💩 Both' ? '💧💩' : text.split(' ')[0];
+      const { text: t, kb } = await render(ctx, baby, `${icon} Diaper logged`);
+      const sent = await ctx.reply(t, kb);
+      await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
+      return;
+    }
+
+    if (text === '📝 Note') {
+      const baby = await q.babyFor(ctx.from.id);
+      if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+      const stored = await getStoredLogMsg(ctx.from.id);
+      if (stored && stored.chat_id === ctx.chat.id) {
+        ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
+      }
+      const [st, names] = await Promise.all([q.status(baby.id), caregiverNames(baby.id, ctx.from.id)]);
+      const now2 = new Date();
+      const sl   = isSgtNight(now2) ? nightStatusLine(st, now2, baby.birth_date) : statusLine(st, now2, baby.birth_date, names);
+      const sent = await ctx.reply(
+        `${baby.name} · ${clock(now2)}\n\n${sl}\n\n_Type your note and send it:_`,
+        { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'tap:back')]]) },
+      );
+      await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
+      pendingNote.set(ctx.from.id, {
+        chatId: ctx.chat.id, messageId: sent.message_id,
+        retroTs: null, expiresAt: Date.now() + NOTE_TTL_MS,
+      });
+      return;
+    }
+
+    if (text === '📊 Logs') {
       const baby = await q.babyFor(ctx.from.id);
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
       const { text: dashText, kb } = await sendLogsView(ctx, baby, currentSgtDate());

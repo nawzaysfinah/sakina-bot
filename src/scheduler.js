@@ -56,7 +56,19 @@ export function initScheduler(bot, { babyLog, supabase } = {}) {
     }
   }, { timezone: 'Asia/Singapore' });
 
-  console.log('📅 Scheduler started — hourly timezone-aware briefings, weekly Sunday summary, daily health checks, 7am overnight reports');
+  // ── Daily 8:30pm SGT — evening reconciliation ─────────────────────────────
+  cron.schedule('30 20 * * *', async () => {
+    if (!babyLogRef || !supabaseRef) return;
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
+    try {
+      if (await babyLogRef.queries.claimJob('evening_reconcile', today)) {
+        const { sendReconciliationReport } = await import('./babyLog/reconcile.js');
+        await sendReconciliationReport(botInstance, supabaseRef, babyLogRef.queries);
+      }
+    } catch (e) { console.error('reconciliation report failed', e); }
+  }, { timezone: 'Asia/Singapore' });
+
+  console.log('📅 Scheduler started — hourly timezone-aware briefings, weekly Sunday summary, daily health checks, 7am overnight reports, 8:30pm reconciliation');
 }
 
 // ── Hourly dispatcher ─────────────────────────────────────────────────────────

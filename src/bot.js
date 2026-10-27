@@ -13,7 +13,7 @@ import { message }  from 'telegraf/filters';
 import { handleMessage }  from './handlers/message.js';
 import { handleCallback } from './handlers/callbacks.js';
 import {
-  handleAbout, handleWeek, handleTip, handleReset, handleReminders,
+  handleAbout, handleReset,
   handleUrgent, handleUndo, handleShare, handleView,
 } from './handlers/commands.js';
 import { initScheduler } from './scheduler.js';
@@ -50,14 +50,9 @@ const babyLog = registerBabyLog(bot, {
 
 bot.start(ctx    => handleMessage(ctx));
 bot.help(ctx     => handleMessage(ctx));
-bot.command('today',     ctx => handleMessage(ctx));
-bot.command('progress',  ctx => handleMessage(ctx));
 bot.command('switch',    ctx => handleMessage(ctx));
 bot.command('about',     ctx => handleAbout(ctx));
-bot.command('week',      ctx => handleWeek(ctx));
-bot.command('tip',       ctx => handleTip(ctx));
 bot.command('reset',     ctx => handleReset(ctx));
-bot.command('reminders', ctx => handleReminders(ctx));
 bot.command('urgent',    ctx => handleUrgent(ctx));
 bot.command('undo',      ctx => handleUndo(ctx));
 // /log is registered by babyLog's registerTapLog (tap.js)
@@ -84,16 +79,10 @@ async function start() {
 
   // Register command menu inside start() so failures are caught and logged
   await bot.telegram.setMyCommands([
-    { command: 'today',     description: "📋 See today's tasks" },
-    { command: 'tip',       description: '💡 Get a wellness tip for today' },
-    { command: 'week',      description: '📅 See your current week or day summary' },
-    { command: 'progress',  description: '📊 See completion count + streak' },
     { command: 'switch',    description: '🔄 Switch mode (Prepare / Recover / Tumbuh)' },
     { command: 'log',       description: '📔 Baby log: quick-tap feed / sleep / diaper' },
-    { command: 'scan',      description: '📷 Scan the notebook page' },
     { command: 'dashboard', description: '📊 Open the baby log dashboard' },
     { command: 'newbaby',   description: '🤍 Set up a baby profile' },
-    { command: 'reminders', description: '📌 View and manage your reminders' },
     { command: 'urgent',    description: '🚨 Emergency danger signs & contacts' },
     { command: 'undo',      description: '↩️ Unmark last logged task' },
     { command: 'share',     description: '🔗 Share your journal with partner/doula' },
