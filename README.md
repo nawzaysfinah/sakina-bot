@@ -28,8 +28,44 @@ A daily wellness companion for pregnancy, postpartum recovery, and baby developm
   - 🍼 feeds · total ml · total latch time
   - 😴 sleep duration today
   - 🧷 wet count (W) · dirty count (D)
-- **Next-feed deadline** — ⏰ feed by `HH:MMam/pm` (last feed + 3 hours); shows "feed overdue" if past
+- **Next-feed window** — personalised prediction of when the next feed is due (see Bayesian predictor below)
 - **Day summary** — pinned at the top of the dashboard
+
+### Bayesian feed predictor
+
+The next-feed window is computed in `src/babyLog/feedWindow.js` by blending two signals:
+
+**Volume signal** — how much the baby took × a digestion multiplier per feed type:
+
+| Feed type | Multiplier | Rationale |
+|-----------|-----------|-----------|
+| Latch / Breast | 1.0× | Baseline |
+| Formula | 1.25× | Digests slower — stays full longer |
+| Combo | 1.1× | Mixed |
+
+`oz × multiplier → predicted hours`; latch duration uses `min × 0.15 oz`.
+
+**Trend signal** — a recency-weighted average of the baby's own inter-feed intervals, conditioned on:
+
+1. **Feed type** — formula→formula intervals are kept separate from latch→latch; formula digests slower so mixing types would bias the prediction
+2. **Time of day** — overnight intervals (10pm–6am SGT) tend to be longer; the predictor uses night history for night predictions and day history for day predictions
+3. **Recency decay** — each older interval is down-weighted by 0.85× relative to the one after it, so a shift in the baby's natural rhythm shows up within a few feeds rather than requiring the old data to drop out of the window
+
+The model picks the most specific set of matching intervals (type + night → type only → night only → all) that has at least 2 data points, then applies the weighted average to that set.
+
+**Blending weights** adapt to data confidence:
+
+| History depth | Volume weight | Trend weight |
+|--------------|--------------|-------------|
+| < 3 valid intervals | 100% | 0% |
+| 3–5 intervals | 60% | 40% |
+| 6+ intervals | 40% | 60% |
+
+**Age-based prior** — when there is no volume signal and no history, the fallback grows from 1.5h at birth to 3.0h at 10 weeks, matching typical developmental spacing rather than using a fixed 3h regardless of age.
+
+The result is displayed as `~HH:MMam (in Xh Ym) · by HH:MMam` — a prediction window with a hard 3-hour wake cap.
+
+---
 
 ### Paper notebook scanning
 

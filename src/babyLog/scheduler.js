@@ -27,6 +27,89 @@ export async function sendScanReminders(bot, supabase, queries) {
   }
 }
 
+// ── Overnight sleep report — sent at 7am SGT ─────────────────────────────────
+
+export async function sendOvernightReport(bot, supabase, queries) {
+  const caregivers = await queries.allCaregivers();
+  const now        = new Date(); // ~7am SGT when cron fires
+
+  // 9pm SGT yesterday to 7am SGT today = 10-hour window ending now
+  const windowEnd   = new Date(now.getTime());
+  const windowStart = new Date(now.getTime() - 10 * 3600 * 1000);
+
+  for (const c of caregivers) {
+    try {
+      const { data: events } = await supabase.from('baby_events_effective')
+        .select('kind, start_at, end_at, detail')
+        .eq('baby_id', c.babies.id)
+        .gte('start_at', windowStart.toISOString())
+        .lt('start_at', windowEnd.toISOString())
+        .order('start_at', { ascending: true });
+
+      const sleeps = (events || []).filter(e => e.kind === 'sleep');
+      const feeds  = (events || []).filter(e => e.kind === 'feed');
+
+      // Header date: the evening date (9pm side of the window)
+      const evDate = new Date(windowStart.getTime() + 8 * 3600 * 1000);
+      const dateLabel = evDate.toLocaleDateString('en-SG', {
+        weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC',
+      });
+
+      if (!sleeps.length && !feeds.length) {
+        await bot.telegram.sendMessage(
+          c.telegram_user_id,
+          `🌙 *Overnight — ${dateLabel}*\n\nNo events recorded during the night.`,
+          { parse_mode: 'Markdown' },
+        );
+        continue;
+      }
+
+      const lines = [`🌙 *Overnight — ${dateLabel}*`];
+
+      if (sleeps.length) {
+        let totalMs = 0, longestMs = 0, wakeUps = 0;
+        for (const s of sleeps) {
+          const endAt = s.end_at ? new Date(s.end_at) : windowEnd;
+          const dur   = Math.max(0, endAt - new Date(s.start_at));
+          totalMs   += dur;
+          if (dur > longestMs) longestMs = dur;
+          if (s.end_at) wakeUps++;
+        }
+        const fmt = (ms) => {
+          const h = Math.floor(ms / 3600000);
+          const m = Math.round((ms % 3600000) / 60000);
+          return h > 0 ? `${h}h ${m}m` : `${m}m`;
+        };
+        lines.push('');
+        lines.push(`😴 Total sleep: ${fmt(totalMs)}`);
+        lines.push(`⏱ Longest stretch: ${fmt(longestMs)}`);
+        lines.push(`☀️ Wake-ups: ${wakeUps}`);
+      }
+
+      if (feeds.length) {
+        lines.push('');
+        lines.push('*Night feeds:*');
+        for (const f of feeds) {
+          const t  = new Date(f.start_at).toLocaleString('en-SG', {
+            hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore',
+          }).toLowerCase().replace(/ /g, '');
+          const d  = f.detail;
+          let fl;
+          if (d?.type === 'formula')     fl = `🍶 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
+          else if (d?.type === 'breast') fl = `🍼 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
+          else if (d?.type === 'latch')  fl = `🤱 ${t}${d.duration_min ? ` · ${d.duration_min}m` : ''}`;
+          else                           fl = `🍼 ${t}`;
+          lines.push(fl);
+        }
+      }
+
+      await bot.telegram.sendMessage(c.telegram_user_id, lines.join('\n'), { parse_mode: 'Markdown' });
+    } catch (e) {
+      console.error('overnight report failed for', c.telegram_user_id, e.description || e.message);
+    }
+  }
+}
+
 // ── Newborn feed alerts — called from hourlyCheck every hour ─────────────────
 
 export async function checkNewbornFeedAlerts(bot, supabase, queries) {

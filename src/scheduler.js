@@ -42,21 +42,21 @@ export function initScheduler(bot, { babyLog, supabase } = {}) {
   // ── Every 30 min — feed interval reminders ───────────────────────────────
   cron.schedule('*/30 * * * *', checkFeedReminders);
 
-  // ── Daily 9pm SGT — baby log scan reminders ───────────────────────────────
-  cron.schedule('0 21 * * *', async () => {
+  // ── Daily 7am SGT — overnight sleep report ────────────────────────────────
+  cron.schedule('0 7 * * *', async () => {
     if (!babyLogRef || !supabaseRef) return;
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
     try {
-      if (await babyLogRef.queries.claimJob('scan_reminder', today)) {
-        const { sendScanReminders } = await import('./babyLog/scheduler.js');
-        await sendScanReminders(botInstance, supabaseRef, babyLogRef.queries);
+      if (await babyLogRef.queries.claimJob('overnight_report', today)) {
+        const { sendOvernightReport } = await import('./babyLog/scheduler.js');
+        await sendOvernightReport(botInstance, supabaseRef, babyLogRef.queries);
       }
     } catch (e) {
-      console.error('scan reminders failed', e);
+      console.error('overnight report failed', e);
     }
   }, { timezone: 'Asia/Singapore' });
 
-  console.log('📅 Scheduler started — hourly timezone-aware briefings, weekly Sunday summary, daily health checks, 9pm baby log reminders');
+  console.log('📅 Scheduler started — hourly timezone-aware briefings, weekly Sunday summary, daily health checks, 7am overnight reports');
 }
 
 // ── Hourly dispatcher ─────────────────────────────────────────────────────────

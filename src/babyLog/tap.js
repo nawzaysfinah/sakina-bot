@@ -158,7 +158,7 @@ function daySummary(events, now) {
   return parts.join('  ');
 }
 
-function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = new Date(), tz = 'Asia/Singapore', feedWindow = null) {
+function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = new Date(), tz = 'Asia/Singapore', feedWindow = null, nameMap = null) {
   const isToday = rowDate === currentSgtDate(now);
   if (!events?.length) {
     const header = isToday ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
@@ -197,7 +197,8 @@ function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = n
     } else {
       label = e.kind;
     }
-    return `\`${t}\`  ${label}`;
+    const who = nameMap && e.logged_by && nameMap[String(e.logged_by)] ? ` · _${nameMap[String(e.logged_by)]}_` : '';
+    return `\`${t}\`  ${label}${who}`;
   });
 
   let nextFeedLine = '';
@@ -442,7 +443,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     ]);
     const now = new Date();
     const fw  = st?.last_feed
-      ? await fetchFeedWindow(baby.id, st.last_feed.detail, new Date(st.last_feed.start_at), supabase)
+      ? await fetchFeedWindow(baby.id, st.last_feed.detail, new Date(st.last_feed.start_at), supabase, baby.birth_date)
       : null;
     const timer = latchTimerLine(ctx.from.id, now);
     const sl    = isSgtNight(now)
@@ -481,15 +482,46 @@ export function registerTapLog(bot, { supabase, queries }) {
   const insert = (baby, ctx, row) => insertAt(baby, ctx, row, null);
 
   async function logFeed(ctx, baby, detail, overrideTs) {
-    const ts = overrideTs ?? null;
+    const feedTime    = overrideTs instanceof Date ? overrideTs : (overrideTs ? new Date(overrideTs) : new Date());
+    const feedTimeIso = feedTime.toISOString();
+
+    // Merge with a same-type feed within the last 30 minutes (e.g. 30ml + 30ml top-up)
+    if (detail?.amount_ml && detail.amount_ml > 0) {
+      const cutoff = new Date(feedTime.getTime() - 30 * 60 * 1000).toISOString();
+      const { data: prev } = await supabase.from('baby_events')
+        .select('id, detail, start_at')
+        .eq('baby_id', baby.id)
+        .eq('kind', 'feed')
+        .eq('source', 'tap')
+        .not('detail', 'is', null)
+        .gte('start_at', cutoff)
+        .lte('start_at', feedTimeIso)
+        .order('start_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (prev?.detail?.amount_ml && prev.detail.type === detail.type) {
+        const parts   = prev.detail.parts ?? [{ amount_ml: prev.detail.amount_ml, t: prev.start_at }];
+        parts.push({ amount_ml: detail.amount_ml, t: feedTimeIso });
+        const totalMl = parts.reduce((s, p) => s + p.amount_ml, 0);
+        const { error } = await supabase.from('baby_events')
+          .update({ detail: { ...prev.detail, amount_ml: totalMl, parts } })
+          .eq('id', prev.id);
+        if (error) throw error;
+        await closeSleep(baby.id, feedTime);
+        setAutoFeedReminders(ctx.from.id, baby.name, feedTime);
+        return { merged: true, totalMl, firstAt: prev.start_at };
+      }
+    }
+
     const { error } = await insertAt(baby, ctx, {
       kind: 'feed',
       detail: detail && Object.keys(detail).length ? detail : null,
-    }, ts);
+    }, overrideTs ?? null);
     if (error) throw error;
-    const feedTime = ts instanceof Date ? ts : (ts ? new Date(ts) : new Date());
     await closeSleep(baby.id, feedTime);
     setAutoFeedReminders(ctx.from.id, baby.name, feedTime);
+    return { merged: false };
   }
 
   async function openSleep(babyId) {
@@ -578,21 +610,29 @@ export function registerTapLog(bot, { supabase, queries }) {
     const now        = new Date();
     const isToday    = dateStr === currentSgtDate(now);
     const { start, end } = dayBoundsUtc(dateStr);
-    const [{ data: events }, tz] = await Promise.all([
+    const [{ data: events }, tz, { data: caregiverRows }] = await Promise.all([
       supabase.from('baby_events_effective')
-        .select('kind, start_at, end_at, detail, source')
+        .select('kind, start_at, end_at, detail, source, logged_by')
         .eq('baby_id', baby.id)
         .gte('start_at', start)
         .lt('start_at', end)
         .order('start_at', { ascending: true }),
       getUserTz(ctx.from.id),
+      supabase.from('users').select('id, name')
+        .or(`id.eq.${baby.id},linked_user_id.eq.${baby.id}`),
     ]);
+    // Build userId → firstName map; only show names when multiple caregivers log
+    const nameMap = {};
+    for (const u of caregiverRows || []) {
+      if (u.name) nameMap[String(u.id)] = u.name.split(' ')[0];
+    }
+    const showNames = Object.keys(nameMap).length > 1 ? nameMap : null;
     let fw = null;
     if (isToday && events?.length) {
       const lastFeed = [...events].reverse().find(e => e.kind === 'feed');
-      if (lastFeed) fw = await fetchFeedWindow(baby.id, lastFeed.detail, new Date(lastFeed.start_at), supabase);
+      if (lastFeed) fw = await fetchFeedWindow(baby.id, lastFeed.detail, new Date(lastFeed.start_at), supabase, baby.birth_date);
     }
-    const text = formatTodayEvents(events, baby.name, dateStr, now, tz, fw);
+    const text = formatTodayEvents(events, baby.name, dateStr, now, tz, fw, showNames);
     const kb   = logsNavKeyboard(dateStr);
     return { text, kb };
   }
@@ -797,7 +837,11 @@ export function registerTapLog(bot, { supabase, queries }) {
           detail = { type: 'latch', side: sideWord, duration_min: num };
           note   = `🤱 ${sideLabel} · ${num}m at ${clock(retroTs ?? new Date())}`;
         }
-        await logFeed(ctx, baby, detail, retroTs);
+        const feedResult = await logFeed(ctx, baby, detail, retroTs);
+        if (feedResult.merged) {
+          if (inp.type === 'formula_amount') note = `🍶 ${feedResult.totalMl}ml total (2 parts)`;
+          else if (inp.type === 'breast_amount') note = `🍼 ${feedResult.totalMl}ml breast total (2 parts)`;
+        }
         const st  = await q.status(baby.id);
         const msg = `${baby.name} right now\n\n${statusLine(st, new Date(), baby.birth_date)}\n\n✓ ${note}`;
         await editLog(msg, keyboard());
@@ -1195,9 +1239,11 @@ export function registerTapLog(bot, { supabase, queries }) {
         pendingFeedRepeat.delete(ctx.from.id);
         const detail = stored?.detail ?? {};
         const ts     = stored?.retroTs ?? consumeRetroTime(ctx.from.id);
-        await logFeed(ctx, baby, detail, ts);
+        const result = await logFeed(ctx, baby, detail, ts);
         const label  = feedRepeatLabel(detail) ?? 'Feed';
-        const note   = `${label} at ${clock(ts ?? new Date())}`;
+        const note   = result.merged
+          ? `${label} · ${result.totalMl}ml total (2 parts)`
+          : `${label} at ${clock(ts ?? new Date())}`;
         await ctx.answerCbQuery(note);
         const { text, kb } = await render(ctx, baby, note);
         return ctx.editMessageText(text, kb);
@@ -1293,9 +1339,9 @@ export function registerTapLog(bot, { supabase, queries }) {
         const amount = parts[1]; // number or 'skip'
         const detail = { type: 'breast', ...(amount !== 'skip' ? { amount_ml: +amount } : {}) };
         const ts     = consumeRetroTime(ctx.from.id);
-        await logFeed(ctx, baby, detail, ts);
+        const result = await logFeed(ctx, baby, detail, ts);
         const note   = amount !== 'skip'
-          ? `🍼 ${amount}ml (breast) at ${clock(ts ?? new Date())}`
+          ? (result.merged ? `🍼 ${result.totalMl}ml breast total (2 parts)` : `🍼 ${amount}ml (breast) at ${clock(ts ?? new Date())}`)
           : `🍼 Breast milk at ${clock(ts ?? new Date())}`;
         await ctx.answerCbQuery(note);
         const { text, kb } = await render(ctx, baby, note);
@@ -1324,9 +1370,9 @@ export function registerTapLog(bot, { supabase, queries }) {
         const amount = parts[1]; // number or 'skip'
         const detail = { type: 'formula', ...(amount !== 'skip' ? { amount_ml: +amount } : {}) };
         const ts     = consumeRetroTime(ctx.from.id);
-        await logFeed(ctx, baby, detail, ts);
+        const result = await logFeed(ctx, baby, detail, ts);
         const note   = amount !== 'skip'
-          ? `🍶 ${amount}ml at ${clock(ts ?? new Date())}`
+          ? (result.merged ? `🍶 ${result.totalMl}ml total (2 parts)` : `🍶 ${amount}ml at ${clock(ts ?? new Date())}`)
           : `🍶 Formula feed at ${clock(ts ?? new Date())}`;
         await ctx.answerCbQuery(note);
         const { text, kb } = await render(ctx, baby, note);
