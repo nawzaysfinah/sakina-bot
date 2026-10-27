@@ -75,7 +75,11 @@ export function registerPaperLog(bot, {
   const monthOf = (scan) => scan.month.slice(0, 7);
 
   // Persistent quick-access keyboard shown once baby is set up.
-  const quickKb = Markup.keyboard([['📋 Log', '📊 Dashboard']])
+  const quickKb = Markup.keyboard([
+    ['🍼 Feed',  '😴 Sleep', '📝 Note'],
+    ['💧 Wet',   '💩 Dirty', '💧💩 Both'],
+    ['📊 Logs'],
+  ])
     .resize()
     .persistent();
 
