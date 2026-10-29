@@ -37,17 +37,38 @@ export async function sendOvernightReport(bot, supabase, queries) {
   const windowEnd   = new Date(now.getTime());
   const windowStart = new Date(now.getTime() - 10 * 3600 * 1000);
 
+  const fmt = (ms) => {
+    const h = Math.floor(ms / 3600000);
+    const m = Math.round((ms % 3600000) / 60000);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+  const clockSgt = (ts) => new Date(ts).toLocaleString('en-SG', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore',
+  }).toLowerCase().replace(/ /g, '');
+
   for (const c of caregivers) {
     try {
-      const { data: events } = await supabase.from('baby_events_effective')
-        .select('kind, start_at, end_at, detail')
+      // Sleep from effective view (includes paper if scanned)
+      const { data: sleepEvents } = await supabase.from('baby_events_effective')
+        .select('kind, start_at, end_at')
         .eq('baby_id', c.babies.id)
+        .eq('kind', 'sleep')
         .gte('start_at', windowStart.toISOString())
         .lt('start_at', windowEnd.toISOString())
         .order('start_at', { ascending: true });
 
-      const sleeps = (events || []).filter(e => e.kind === 'sleep');
-      const feeds  = (events || []).filter(e => e.kind === 'feed');
+      // Feeds from tap with logged_by for shift attribution
+      const { data: tapFeeds } = await supabase.from('baby_events')
+        .select('start_at, detail, logged_by')
+        .eq('baby_id', c.babies.id)
+        .eq('kind', 'feed')
+        .eq('source', 'tap')
+        .gte('start_at', windowStart.toISOString())
+        .lt('start_at', windowEnd.toISOString())
+        .order('start_at', { ascending: true });
+
+      const sleeps = sleepEvents || [];
+      const feeds  = tapFeeds    || [];
 
       // Header date: the evening date (9pm side of the window)
       const evDate = new Date(windowStart.getTime() + 8 * 3600 * 1000);
@@ -66,6 +87,7 @@ export async function sendOvernightReport(bot, supabase, queries) {
 
       const lines = [`🌙 *Overnight — ${dateLabel}*`];
 
+      // ── Sleep summary ──────────────────────────────────────────────────────
       if (sleeps.length) {
         let totalMs = 0, longestMs = 0, wakeUps = 0;
         for (const s of sleeps) {
@@ -75,31 +97,53 @@ export async function sendOvernightReport(bot, supabase, queries) {
           if (dur > longestMs) longestMs = dur;
           if (s.end_at) wakeUps++;
         }
-        const fmt = (ms) => {
-          const h = Math.floor(ms / 3600000);
-          const m = Math.round((ms % 3600000) / 60000);
-          return h > 0 ? `${h}h ${m}m` : `${m}m`;
-        };
         lines.push('');
         lines.push(`😴 Total sleep: ${fmt(totalMs)}`);
         lines.push(`⏱ Longest stretch: ${fmt(longestMs)}`);
         lines.push(`☀️ Wake-ups: ${wakeUps}`);
       }
 
+      // ── Shift coverage ─────────────────────────────────────────────────────
       if (feeds.length) {
+        const loggerIds = [...new Set(feeds.map(f => f.logged_by).filter(Boolean))];
+        let loggerNames = {};
+        if (loggerIds.length) {
+          const { data: users } = await supabase.from('users')
+            .select('id, name').in('id', loggerIds);
+          for (const u of users || []) {
+            loggerNames[u.id] = (u.name || '').split(' ')[0] || `User ${u.id}`;
+          }
+        }
+
+        // Per-parent feed counts
+        const shiftCounts = {};
+        for (const f of feeds) {
+          if (!f.logged_by) continue;
+          const who = loggerNames[f.logged_by] ?? `User ${f.logged_by}`;
+          shiftCounts[who] = (shiftCounts[who] || 0) + 1;
+        }
+
+        if (Object.keys(shiftCounts).length > 1) {
+          lines.push('');
+          lines.push('*Who was on:*');
+          for (const [name, count] of Object.entries(shiftCounts)) {
+            lines.push(`  ${name} — ${count} feed${count !== 1 ? 's' : ''}`);
+          }
+        }
+
+        // ── Feed list with attribution ────────────────────────────────────────
         lines.push('');
         lines.push('*Night feeds:*');
         for (const f of feeds) {
-          const t  = new Date(f.start_at).toLocaleString('en-SG', {
-            hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore',
-          }).toLowerCase().replace(/ /g, '');
+          const t  = clockSgt(f.start_at);
           const d  = f.detail;
+          const who = f.logged_by && loggerNames[f.logged_by] ? ` _(${loggerNames[f.logged_by]})_` : '';
           let fl;
           if (d?.type === 'formula')     fl = `🍶 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
           else if (d?.type === 'breast') fl = `🍼 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
           else if (d?.type === 'latch')  fl = `🤱 ${t}${d.duration_min ? ` · ${d.duration_min}m` : ''}`;
           else                           fl = `🍼 ${t}`;
-          lines.push(fl);
+          lines.push(fl + who);
         }
       }
 
