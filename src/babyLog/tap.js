@@ -606,6 +606,46 @@ export function registerTapLog(bot, { supabase, queries }) {
     return data?.timezone || 'Asia/Singapore';
   }
 
+  async function parentInsights(babyId, nameMap) {
+    const since = new Date(Date.now() - 14 * 86400000).toISOString();
+    const { data: feeds } = await supabase
+      .from('baby_events')
+      .select('start_at, detail, logged_by')
+      .eq('baby_id', babyId)
+      .eq('kind', 'feed')
+      .eq('source', 'tap')
+      .not('logged_by', 'is', null)
+      .gte('start_at', since);
+
+    if (!feeds?.length) return null;
+
+    const SGT = 8 * 3600000;
+    const stats = {};
+    for (const f of feeds) {
+      const uid = String(f.logged_by);
+      if (!nameMap[uid]) continue;
+      if (!stats[uid]) stats[uid] = { slots: { morning: 0, afternoon: 0, evening: 0, night: 0 }, types: {} };
+      const h    = new Date(new Date(f.start_at).getTime() + SGT).getUTCHours();
+      const slot = h >= 6 && h < 12 ? 'morning' : h >= 12 && h < 18 ? 'afternoon' : h >= 18 && h < 22 ? 'evening' : 'night';
+      stats[uid].slots[slot]++;
+      const type = f.detail?.type ?? 'unknown';
+      stats[uid].types[type] = (stats[uid].types[type] || 0) + 1;
+    }
+
+    const slotEmoji = { morning: '🌅', afternoon: '☀️', evening: '🌆', night: '🌙' };
+    const typeEmoji = { latch: '🤱', breast: '🍼', formula: '🍶' };
+    const lines = [];
+    for (const [uid, s] of Object.entries(stats)) {
+      const name     = nameMap[uid];
+      const topSlot  = Object.entries(s.slots).sort((a, b) => b[1] - a[1])[0][0];
+      const topType  = Object.entries(s.types).sort((a, b) => b[1] - a[1])[0]?.[0];
+      const total    = Object.values(s.slots).reduce((a, b) => a + b, 0);
+      const typeStr  = typeEmoji[topType] ? ` ${typeEmoji[topType]}` : '';
+      lines.push(`${slotEmoji[topSlot]} *${name}* — ${topSlot}s${typeStr} · ${total} feeds`);
+    }
+    return lines.length ? `\n\n*Last 14 days*\n${lines.join('\n')}` : null;
+  }
+
   async function sendLogsView(ctx, baby, dateStr) {
     const now        = new Date();
     const isToday    = dateStr === currentSgtDate(now);
@@ -632,8 +672,12 @@ export function registerTapLog(bot, { supabase, queries }) {
       const lastFeed = [...events].reverse().find(e => e.kind === 'feed');
       if (lastFeed) fw = await fetchFeedWindow(baby.id, lastFeed.detail, new Date(lastFeed.start_at), supabase, baby.birth_date);
     }
-    const text = formatTodayEvents(events, baby.name, dateStr, now, tz, fw, showNames);
-    const kb   = logsNavKeyboard(dateStr);
+    let text = formatTodayEvents(events, baby.name, dateStr, now, tz, fw, showNames);
+    if (isToday && showNames) {
+      const insights = await parentInsights(baby.id, showNames);
+      if (insights) text += insights;
+    }
+    const kb = logsNavKeyboard(dateStr);
     return { text, kb };
   }
 
