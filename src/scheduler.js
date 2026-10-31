@@ -128,14 +128,12 @@ async function checkFeedReminders() {
       }
     }
 
-    // Auto reminders (skin-on-skin at +2h, feed due at +3h)
-    for (const { userId, babyName, type } of popDueAutoReminders()) {
+    // Auto reminders — fires 15 min before predicted next feed
+    for (const { userId, babyName } of popDueAutoReminders()) {
       try {
         const chatId = await resolveChat(userId);
         if (!chatId) continue;
-        const msg = type === 'skin_on_skin'
-          ? `🤗 *Time for skin-on-skin with ${babyName}!*\n\nUndress ${babyName} down to their nappy and hold them against your chest for 15–20 minutes. Skin-on-skin regulates temperature, heartbeat, and bonding 🌿`
-          : `🍼 *${babyName} is due for a feed!*\n\nIt's been 3 hours since their last feed. Tap /log to record it.`;
+        const msg = `🍼 *${babyName} will be hungry soon* — feed in ~15 min.`;
         await botInstance.telegram.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
       } catch (e) {
         console.error(`Auto feed reminder send failed for user ${userId}:`, e.message);
