@@ -6,7 +6,7 @@
 import { Markup } from 'telegraf';
 import { clock, span, statusLine, nightStatusLine, currentRowDateStr, addDays, dayLabel, hrs } from './format.js';
 import { setFeedReminder, clearFeedReminder, getFeedReminder, setAutoFeedReminders, clearAutoFeedReminders } from './feedReminder.js';
-import { fetchFeedWindow } from './feedWindow.js';
+import { fetchFeedWindow, feedVolumeGuidance } from './feedWindow.js';
 
 const UNDO_MINUTES  = 30;
 const RETRO_TTL_MS  = 3 * 60 * 1000;  // 3 min to tap/type a structured value before pending expires
@@ -129,17 +129,19 @@ function clockInTz(ts, tz = 'Asia/Singapore') {
 
 // ── Today's events display ────────────────────────────────────────────────────
 
-function daySummary(events, now) {
+function daySummary(events, now, birthDate = null) {
   const feeds   = events.filter(e => e.kind === 'feed');
   const sleeps  = events.filter(e => e.kind === 'sleep');
   const diapers = events.filter(e => e.kind === 'diaper');
 
-  const feedCount  = feeds.length;
-  const totalMl    = feeds.reduce((s, e) => s + (e.detail?.amount_ml || 0), 0);
-  const latchMin   = feeds
-    .filter(e => e.detail?.type === 'latch')
+  const feedCount = feeds.length;
+  const formulaMl = feeds.filter(e => e.detail?.type === 'formula')
+    .reduce((s, e) => s + (e.detail?.amount_ml || 0), 0);
+  const breastMl  = feeds.filter(e => e.detail?.type === 'breast')
+    .reduce((s, e) => s + (e.detail?.amount_ml || 0), 0);
+  const latchMin  = feeds.filter(e => e.detail?.type === 'latch')
     .reduce((s, e) => s + (e.detail?.duration_min || 0), 0);
-  const sleepMs    = sleeps.reduce((s, e) => {
+  const sleepMs   = sleeps.reduce((s, e) => {
     const end = e.end_at ? new Date(e.end_at) : now;
     return s + Math.max(0, end - new Date(e.start_at));
   }, 0);
@@ -149,23 +151,36 @@ function daySummary(events, now) {
   const parts = [];
   if (feedCount) {
     let f = `🍼 ${feedCount} feeds`;
-    if (totalMl)  f += ` · ${totalMl}ml`;
+    if (formulaMl && breastMl) f += ` · 🍶${formulaMl}ml 🍼${breastMl}ml`;
+    else if (formulaMl) f += ` · 🍶${formulaMl}ml`;
+    else if (breastMl)  f += ` · 🍼${breastMl}ml`;
     if (latchMin) f += ` · ${span(latchMin * 60000)} latch`;
     parts.push(f);
   }
   if (sleepMs) parts.push(`😴 ${span(sleepMs)}`);
   if (wet || dirty) parts.push(`🧷 W${wet} D${dirty}`);
+
+  const totalMl = formulaMl + breastMl;
+  if (birthDate && totalMl) {
+    const g = feedVolumeGuidance(birthDate, now);
+    if (g) {
+      let line = `📊 ${totalMl}ml · rec ${g.dailyMl[0]}–${g.dailyMl[1]}ml/day`;
+      if (g.growthSpurt) line += ` · 🌱 _${g.growthSpurt}_`;
+      parts.push(line);
+    }
+  }
+
   return parts.join('  ');
 }
 
-function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = new Date(), tz = 'Asia/Singapore', feedWindow = null, nameMap = null) {
+function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = new Date(), tz = 'Asia/Singapore', feedWindow = null, nameMap = null, birthDate = null) {
   const isToday = rowDate === currentSgtDate(now);
   if (!events?.length) {
     const header = isToday ? `*${babyName} today*` : `*${babyName} — ${dayLabel(rowDate)}*`;
     return `${header}\n\nNothing logged yet.`;
   }
 
-  const summary = daySummary(events.filter(e => e.kind !== 'pd_question'), now);
+  const summary = daySummary(events.filter(e => e.kind !== 'pd_question'), now, isToday ? birthDate : null);
 
   const lines = events.filter(e => e.kind !== 'pd_question').map(e => {
     const t = clockInTz(e.start_at, tz);
@@ -509,7 +524,9 @@ export function registerTapLog(bot, { supabase, queries }) {
           .eq('id', prev.id);
         if (error) throw error;
         await closeSleep(baby.id, feedTime);
-        setAutoFeedReminders(ctx.from.id, baby.name, feedTime);
+        const { predictedMs: pMs } = await fetchFeedWindow(baby.id, detail, feedTime, supabase, baby.birth_date)
+          .catch(() => ({ predictedMs: feedTime.getTime() + 3 * 3600 * 1000 }));
+        setAutoFeedReminders(ctx.from.id, baby.name, pMs);
         return { merged: true, totalMl, firstAt: prev.start_at };
       }
     }
@@ -520,7 +537,9 @@ export function registerTapLog(bot, { supabase, queries }) {
     }, overrideTs ?? null);
     if (error) throw error;
     await closeSleep(baby.id, feedTime);
-    setAutoFeedReminders(ctx.from.id, baby.name, feedTime);
+    const { predictedMs: pMs } = await fetchFeedWindow(baby.id, detail, feedTime, supabase, baby.birth_date)
+      .catch(() => ({ predictedMs: feedTime.getTime() + 3 * 3600 * 1000 }));
+    setAutoFeedReminders(ctx.from.id, baby.name, pMs);
     return { merged: false };
   }
 
@@ -606,46 +625,6 @@ export function registerTapLog(bot, { supabase, queries }) {
     return data?.timezone || 'Asia/Singapore';
   }
 
-  async function parentInsights(babyId, nameMap) {
-    const since = new Date(Date.now() - 14 * 86400000).toISOString();
-    const { data: feeds } = await supabase
-      .from('baby_events')
-      .select('start_at, detail, logged_by')
-      .eq('baby_id', babyId)
-      .eq('kind', 'feed')
-      .eq('source', 'tap')
-      .not('logged_by', 'is', null)
-      .gte('start_at', since);
-
-    if (!feeds?.length) return null;
-
-    const SGT = 8 * 3600000;
-    const stats = {};
-    for (const f of feeds) {
-      const uid = String(f.logged_by);
-      if (!nameMap[uid]) continue;
-      if (!stats[uid]) stats[uid] = { slots: { morning: 0, afternoon: 0, evening: 0, night: 0 }, types: {} };
-      const h    = new Date(new Date(f.start_at).getTime() + SGT).getUTCHours();
-      const slot = h >= 6 && h < 12 ? 'morning' : h >= 12 && h < 18 ? 'afternoon' : h >= 18 && h < 22 ? 'evening' : 'night';
-      stats[uid].slots[slot]++;
-      const type = f.detail?.type ?? 'unknown';
-      stats[uid].types[type] = (stats[uid].types[type] || 0) + 1;
-    }
-
-    const slotEmoji = { morning: '🌅', afternoon: '☀️', evening: '🌆', night: '🌙' };
-    const typeEmoji = { latch: '🤱', breast: '🍼', formula: '🍶' };
-    const lines = [];
-    for (const [uid, s] of Object.entries(stats)) {
-      const name     = nameMap[uid];
-      const topSlot  = Object.entries(s.slots).sort((a, b) => b[1] - a[1])[0][0];
-      const topType  = Object.entries(s.types).sort((a, b) => b[1] - a[1])[0]?.[0];
-      const total    = Object.values(s.slots).reduce((a, b) => a + b, 0);
-      const typeStr  = typeEmoji[topType] ? ` ${typeEmoji[topType]}` : '';
-      lines.push(`${slotEmoji[topSlot]} *${name}* — ${topSlot}s${typeStr} · ${total} feeds`);
-    }
-    return lines.length ? `\n\n*Last 14 days*\n${lines.join('\n')}` : null;
-  }
-
   async function sendLogsView(ctx, baby, dateStr) {
     const now        = new Date();
     const isToday    = dateStr === currentSgtDate(now);
@@ -672,12 +651,8 @@ export function registerTapLog(bot, { supabase, queries }) {
       const lastFeed = [...events].reverse().find(e => e.kind === 'feed');
       if (lastFeed) fw = await fetchFeedWindow(baby.id, lastFeed.detail, new Date(lastFeed.start_at), supabase, baby.birth_date);
     }
-    let text = formatTodayEvents(events, baby.name, dateStr, now, tz, fw, showNames);
-    if (isToday && showNames) {
-      const insights = await parentInsights(baby.id, showNames);
-      if (insights) text += insights;
-    }
-    const kb = logsNavKeyboard(dateStr);
+    const text = formatTodayEvents(events, baby.name, dateStr, now, tz, fw, showNames, baby.birth_date);
+    const kb   = logsNavKeyboard(dateStr);
     return { text, kb };
   }
 
@@ -1176,7 +1151,7 @@ export function registerTapLog(bot, { supabase, queries }) {
         getUserTz(ctx.from.id),
       ]);
       await ctx.answerCbQuery();
-      const text = formatTodayEvents(events, baby.name, today, new Date(), tz);
+      const text = formatTodayEvents(events, baby.name, today, new Date(), tz, null, null, baby.birth_date);
       try {
         await ctx.editMessageText(text, {
           parse_mode: 'Markdown',

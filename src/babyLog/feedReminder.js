@@ -25,16 +25,13 @@ export function popDueReminders(now = new Date()) {
 }
 
 // ── Auto reminders (set automatically after every feed) ───────────────────────
-// Fires two nudges per feed cycle regardless of user action:
-//   +2h → skin-on-skin prompt
-//   +3h → feed due alert
-// userId → [{ remindAt: Date, type: 'skin_on_skin'|'feed_due', babyName: string }]
+// Fires 15 min before the Bayesian-predicted next feed time.
+// userId → [{ remindAt: Date, type: 'next_feed', babyName: string }]
 const autoStore = new Map();
 
-export function setAutoFeedReminders(userId, babyName, feedTime = new Date()) {
+export function setAutoFeedReminders(userId, babyName, predictedMs) {
   autoStore.set(String(userId), [
-    { remindAt: new Date(feedTime.getTime() + 2 * 3600 * 1000), type: 'skin_on_skin', babyName },
-    { remindAt: new Date(feedTime.getTime() + 3 * 3600 * 1000), type: 'feed_due',     babyName },
+    { remindAt: new Date(predictedMs - 15 * 60 * 1000), type: 'next_feed', babyName },
   ]);
 }
 
