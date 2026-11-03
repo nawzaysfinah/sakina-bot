@@ -20,6 +20,38 @@ const HARD_CAP_H   = 3;
 const MIN_H        = 1.5;
 const TREND_DECAY  = 0.85; // recency weight: most-recent = 1.0, each older step × 0.85
 
+// Growth spurt windows [startDay, endDay, label]
+const GROWTH_SPURTS = [
+  [7,   10,  '7–10 day spurt'],
+  [14,  21,  '2–3 week spurt'],
+  [38,  48,  '6 week spurt'],
+  [84,  100, '3 month spurt'],
+  [168, 189, '6 month spurt'],
+  [252, 273, '9 month spurt'],
+];
+
+// Expected intake norms by age [maxDays, perFeedMl:[min,max], dailyMl:[min,max]]
+const AGE_NORMS = [
+  { maxDays: 30,  perFeedMl: [30,  90],  dailyMl: [415, 710] },  // 0–1mo
+  { maxDays: 61,  perFeedMl: [120, 150], dailyMl: [710, 830] },  // 1–2mo
+  { maxDays: 152, perFeedMl: [150, 180], dailyMl: [830, 945] },  // 3–5mo
+  { maxDays: 365, perFeedMl: [180, 240], dailyMl: [710, 945] },  // 6–11mo
+];
+
+export function feedVolumeGuidance(birthDate, now = new Date()) {
+  if (!birthDate) return null;
+  const ageDays = Math.max(0, (now - new Date(birthDate)) / 86400000);
+  if (ageDays > 365) return null;
+  const spurt = GROWTH_SPURTS.find(([s, e]) => ageDays >= s && ageDays <= e);
+  const norm  = AGE_NORMS.find(n => ageDays <= n.maxDays);
+  if (!norm) return null;
+  return {
+    perFeedMl:   norm.perFeedMl,
+    dailyMl:     norm.dailyMl,
+    growthSpurt: spurt ? spurt[2] : null,
+  };
+}
+
 function volumeHours(detail) {
   if (!detail) return null;
   const type = detail.type || 'breast';
@@ -64,7 +96,9 @@ export async function fetchFeedWindow(babyId, feedDetail, feedTime, supabase, bi
   const feedMs    = feedTime instanceof Date ? feedTime.getTime() : new Date(feedTime).getTime();
   const feedType  = feedDetail?.type ?? null;
   const volH      = volumeHours(feedDetail);
-  const baseH     = agePrior(birthDate, feedMs);
+  const ageDays   = birthDate ? Math.max(0, (feedMs - new Date(birthDate).getTime()) / 86400000) : null;
+  const inSpurt   = ageDays !== null && GROWTH_SPURTS.some(([s, e]) => ageDays >= s && ageDays <= e);
+  const baseH     = agePrior(birthDate, feedMs) * (inSpurt ? 0.82 : 1.0);
   const feedNight = isNight(sgtHour(feedMs));
 
   // Fetch last 20 feeds with type for conditioning
