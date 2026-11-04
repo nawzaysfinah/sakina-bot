@@ -4,8 +4,8 @@
 // Sakina scheduler (src/scheduler.js) owns the timing.
 
 import { Markup } from 'telegraf';
-import { currentRowDateStr } from './format.js';
-import { sendMorningBriefs } from './brief.js';
+import { currentRowDateStr, hrs } from './format.js';
+import { sendMorningBriefs, ageDaysOf, defaultFocus } from './brief.js';
 
 export async function sendScanReminders(bot, supabase, queries) {
   // The line that just finished is "today" in the notebook (7pm boundary).
@@ -46,17 +46,11 @@ export async function sendOvernightReport(bot, supabase, queries) {
     hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore',
   }).toLowerCase().replace(/ /g, '');
 
+  // Brief data is per-baby so we cache across caregivers sharing the same baby
+  const briefCache = new Map();
+
   for (const c of caregivers) {
     try {
-      // Sleep from effective view (includes paper if scanned)
-      const { data: sleepEvents } = await supabase.from('baby_events_effective')
-        .select('kind, start_at, end_at')
-        .eq('baby_id', c.babies.id)
-        .eq('kind', 'sleep')
-        .gte('start_at', windowStart.toISOString())
-        .lt('start_at', windowEnd.toISOString())
-        .order('start_at', { ascending: true });
-
       // Feeds from tap with logged_by for shift attribution
       const { data: tapFeeds } = await supabase.from('baby_events')
         .select('start_at, detail, logged_by')
@@ -67,8 +61,26 @@ export async function sendOvernightReport(bot, supabase, queries) {
         .lt('start_at', windowEnd.toISOString())
         .order('start_at', { ascending: true });
 
-      const sleeps = sleepEvents || [];
-      const feeds  = tapFeeds    || [];
+      const feeds = tapFeeds || [];
+
+      // ── Estimate sleep from feed gaps (parents don't log sleep at night) ──
+      let totalSleepMs = 0, longestSleepMs = 0, feedWakeUps = 0;
+      if (feeds.length >= 2) {
+        for (let i = 1; i < feeds.length; i++) {
+          const gap = new Date(feeds[i].start_at) - new Date(feeds[i - 1].start_at);
+          if (gap > 30 * 60 * 1000) {
+            totalSleepMs  += gap;
+            if (gap > longestSleepMs) longestSleepMs = gap;
+            feedWakeUps++;
+          }
+        }
+        // Tail gap: last feed to window end counts as ongoing sleep
+        const tailGap = windowEnd - new Date(feeds[feeds.length - 1].start_at);
+        if (tailGap > 30 * 60 * 1000) {
+          totalSleepMs += tailGap;
+          if (tailGap > longestSleepMs) longestSleepMs = tailGap;
+        }
+      }
 
       // Header date: the evening date (9pm side of the window)
       const evDate = new Date(windowStart.getTime() + 8 * 3600 * 1000);
@@ -76,31 +88,19 @@ export async function sendOvernightReport(bot, supabase, queries) {
         weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC',
       });
 
-      if (!sleeps.length && !feeds.length) {
-        await bot.telegram.sendMessage(
-          c.telegram_user_id,
-          `🌙 *Overnight — ${dateLabel}*\n\nNo events recorded during the night.`,
-          { parse_mode: 'Markdown' },
-        );
-        continue;
-      }
-
       const lines = [`🌙 *Overnight — ${dateLabel}*`];
 
-      // ── Sleep summary ──────────────────────────────────────────────────────
-      if (sleeps.length) {
-        let totalMs = 0, longestMs = 0, wakeUps = 0;
-        for (const s of sleeps) {
-          const endAt = s.end_at ? new Date(s.end_at) : windowEnd;
-          const dur   = Math.max(0, endAt - new Date(s.start_at));
-          totalMs   += dur;
-          if (dur > longestMs) longestMs = dur;
-          if (s.end_at) wakeUps++;
-        }
+      // ── Sleep summary (estimated) ──────────────────────────────────────────
+      if (totalSleepMs > 0) {
         lines.push('');
-        lines.push(`😴 Total sleep: ${fmt(totalMs)}`);
-        lines.push(`⏱ Longest stretch: ${fmt(longestMs)}`);
-        lines.push(`☀️ Wake-ups: ${wakeUps}`);
+        lines.push(`😴 Est. sleep: ${fmt(totalSleepMs)}`);
+        lines.push(`⏱ Longest stretch: ${fmt(longestSleepMs)}`);
+        lines.push(`🍼 Feeds: ${feeds.length} (${feedWakeUps} wake-up${feedWakeUps !== 1 ? 's' : ''})`);
+      } else if (feeds.length) {
+        lines.push('');
+        lines.push(`🍼 Feeds: ${feeds.length}`);
+      } else {
+        lines.push('', 'No feeds logged during the night.');
       }
 
       // ── Shift coverage ─────────────────────────────────────────────────────
@@ -115,7 +115,6 @@ export async function sendOvernightReport(bot, supabase, queries) {
           }
         }
 
-        // Per-parent feed counts
         const shiftCounts = {};
         for (const f of feeds) {
           if (!f.logged_by) continue;
@@ -131,12 +130,12 @@ export async function sendOvernightReport(bot, supabase, queries) {
           }
         }
 
-        // ── Feed list with attribution ────────────────────────────────────────
+        // ── Feed list with attribution ──────────────────────────────────────
         lines.push('');
         lines.push('*Night feeds:*');
         for (const f of feeds) {
-          const t  = clockSgt(f.start_at);
-          const d  = f.detail;
+          const t   = clockSgt(f.start_at);
+          const d   = f.detail;
           const who = f.logged_by && loggerNames[f.logged_by] ? ` _(${loggerNames[f.logged_by]})_` : '';
           let fl;
           if (d?.type === 'formula')     fl = `🍶 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
@@ -146,6 +145,35 @@ export async function sendOvernightReport(bot, supabase, queries) {
           lines.push(fl + who);
         }
       }
+
+      // ── Morning brief (merged) ─────────────────────────────────────────────
+      if (!briefCache.has(c.babies.id)) {
+        const [yesterday, avg7] = await Promise.all([
+          queries.lastCompleteDay(c.babies.id, now),
+          queries.averages(c.babies.id, 7),
+        ]);
+        briefCache.set(c.babies.id, { yesterday, avg7 });
+      }
+      const { yesterday, avg7 } = briefCache.get(c.babies.id);
+
+      lines.push('', '─────────────────');
+      lines.push(`*${c.babies.name}'s yesterday*`);
+
+      if (!yesterday || yesterday.source === 'none') {
+        lines.push("No line yet — snap the notebook tonight and I'll catch up.");
+      } else {
+        lines.push(
+          `😴 ${hrs(yesterday.sleep_min)} sleep · night ${hrs(yesterday.night_sleep_min)} · longest ${hrs(yesterday.longest_stretch_min)} · ${yesterday.naps} nap${yesterday.naps === 1 ? '' : 's'}`,
+          `🍼 ${yesterday.feeds} feed${yesterday.feeds === 1 ? '' : 's'}${yesterday.wet != null ? ` · 🧷 ${yesterday.wet} wet, ${yesterday.dirty} dirty` : ''}`,
+        );
+        if (avg7 && avg7.days_with_data >= 3) {
+          lines.push('', `Last ${avg7.days_with_data} days: ${hrs(avg7.sleep_min)} sleep avg, ${avg7.feeds} feeds avg.`);
+        }
+      }
+
+      const focus = defaultFocus(ageDaysOf(c.babies, now));
+      if (focus) lines.push('', `Today: ${focus}`);
+      if (c.role === 'father') lines.push('', 'Check in on mum: water, food, a proper rest if she can.');
 
       await bot.telegram.sendMessage(c.telegram_user_id, lines.join('\n'), { parse_mode: 'Markdown' });
     } catch (e) {

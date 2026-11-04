@@ -148,17 +148,14 @@ function daySummary(events, now, birthDate = null) {
   const wet   = diapers.filter(e => e.detail?.wet).length;
   const dirty = diapers.filter(e => e.detail?.dirty).length;
 
-  const parts = [];
+  const lines = [];
   if (feedCount) {
-    let f = `🍼 ${feedCount} feeds`;
-    if (formulaMl && breastMl) f += ` · 🍶${formulaMl}ml 🍼${breastMl}ml`;
-    else if (formulaMl) f += ` · 🍶${formulaMl}ml`;
-    else if (breastMl)  f += ` · 🍼${breastMl}ml`;
-    if (latchMin) f += ` · ${span(latchMin * 60000)} latch`;
-    parts.push(f);
+    lines.push(`🍼 ${feedCount} feed${feedCount !== 1 ? 's' : ''}`);
+    if (formulaMl && breastMl) lines.push(`🍶${formulaMl}ml 🍼${breastMl}ml`);
+    else if (formulaMl) lines.push(`🍶${formulaMl}ml`);
+    else if (breastMl)  lines.push(`🍼${breastMl}ml`);
+    if (latchMin) lines.push(`🤱 ${span(latchMin * 60000)} latch`);
   }
-  if (sleepMs) parts.push(`😴 ${span(sleepMs)}`);
-  if (wet || dirty) parts.push(`🧷 W${wet} D${dirty}`);
 
   const totalMl = formulaMl + breastMl;
   if (birthDate && totalMl) {
@@ -166,11 +163,14 @@ function daySummary(events, now, birthDate = null) {
     if (g) {
       let line = `📊 ${totalMl}ml · rec ${g.dailyMl[0]}–${g.dailyMl[1]}ml/day`;
       if (g.growthSpurt) line += ` · 🌱 _${g.growthSpurt}_`;
-      parts.push(line);
+      lines.push(line);
     }
   }
 
-  return parts.join('  ');
+  if (sleepMs) lines.push(`😴 ${span(sleepMs)}`);
+  if (wet || dirty) lines.push(`🧷 W${wet} D${dirty}`);
+
+  return lines.join('\n');
 }
 
 function formatTodayEvents(events, babyName, rowDate = currentSgtDate(), now = new Date(), tz = 'Asia/Singapore', feedWindow = null, nameMap = null, birthDate = null) {
