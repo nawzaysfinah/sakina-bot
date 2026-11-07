@@ -28,7 +28,7 @@ export async function handleFeedback(ctx) {
     await fetch(`https://api.github.com/repos/${repo}/issues`, {
       method: 'POST',
       headers: { Authorization: `token ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, body, labels: ['user-feedback'] }),
+      body: JSON.stringify({ title, body }),
     }).catch(() => {}); // non-blocking — feedback is already in DB
   }
 
