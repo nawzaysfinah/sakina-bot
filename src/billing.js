@@ -105,11 +105,13 @@ export function proUpsellText(featureName) {
 // ── Admin grant ───────────────────────────────────────────────────────────────
 // /grantpro <userId> [days]  — owner-only, identified by ADMIN_USER_ID env var
 
-export async function handleGrantPro(ctx) {
+function isAdmin(ctx) {
   const adminId = process.env.ADMIN_USER_ID ? Number(process.env.ADMIN_USER_ID) : null;
-  if (!adminId || ctx.from.id !== adminId) {
-    return ctx.reply('Not authorised.');
-  }
+  return adminId && ctx.from.id === adminId;
+}
+
+export async function handleGrantPro(ctx) {
+  if (!isAdmin(ctx)) return ctx.reply('Not authorised.');
   const parts = ctx.message.text.split(/\s+/);
   const targetId = Number(parts[1]);
   const days     = Number(parts[2] || 30);
@@ -119,6 +121,68 @@ export async function handleGrantPro(ctx) {
     day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Singapore',
   });
   return ctx.reply(`✅ Pro granted to ${targetId} until ${until}.`);
+}
+
+// ── Gift codes ─────────────────────────────────────────────────────────────────
+// /giftpro [days]  — admin creates a one-time code to share
+// /redeem <code>   — anyone redeems it
+
+function randomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous O0/I1
+  let code = 'SAKINA-';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+export async function handleCreateGift(ctx) {
+  if (!isAdmin(ctx)) return ctx.reply('Not authorised.');
+  const parts = ctx.message.text.split(/\s+/);
+  const days  = Number(parts[1] || 30);
+  const code  = randomCode();
+  await supabase.from('gift_codes').insert({
+    code,
+    plan:       'pro',
+    days,
+    created_by: ctx.from.id,
+  });
+  return ctx.reply(
+    `🎁 *Gift code created*\n\n\`${code}\`\n\nGrants *${days} days of Pro*. Share this with anyone — they redeem it with:\n\n\`/redeem ${code}\``,
+    { parse_mode: 'Markdown' },
+  );
+}
+
+export async function handleRedeem(ctx) {
+  const parts = ctx.message.text.split(/\s+/);
+  const code  = (parts[1] || '').toUpperCase().trim();
+  if (!code) return ctx.reply('Usage: /redeem <code>');
+
+  const { data: gift, error } = await supabase
+    .from('gift_codes')
+    .select('*')
+    .eq('code', code)
+    .maybeSingle();
+
+  if (error || !gift) return ctx.reply('❌ Code not found. Check the code and try again.');
+  if (gift.claimed_by)   return ctx.reply('❌ This code has already been used.');
+  if (gift.code_expires_at && new Date(gift.code_expires_at) < new Date()) {
+    return ctx.reply('❌ This code has expired.');
+  }
+
+  const userId    = ctx.from.id;
+  const expiresAt = await grantPro(userId, gift.days);
+
+  await supabase.from('gift_codes').update({
+    claimed_by: userId,
+    claimed_at: new Date().toISOString(),
+  }).eq('code', code);
+
+  const until = new Date(expiresAt).toLocaleDateString('en-SG', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Singapore',
+  });
+  return ctx.reply(
+    `✅ *Gift redeemed!* You're on Sakina Pro until ${until}.\n\n🔮 Feed predictions and full overnight reports are now active.`,
+    { parse_mode: 'Markdown' },
+  );
 }
 
 // ── Payment event handlers ─────────────────────────────────────────────────────
