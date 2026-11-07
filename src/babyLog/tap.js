@@ -855,6 +855,22 @@ export function registerTapLog(bot, { supabase, queries }) {
       const baby = await q.babyFor(ctx.from.id);
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
       activeLatch.delete(String(ctx.from.id));
+
+      // Pro users with saved combos get a quick-pick menu first
+      const [pro, combos] = await Promise.all([
+        isPro(ctx.from.id),
+        getCombos(supabase, baby.id),
+      ]);
+      if (pro && combos.length) {
+        const rows = combos.map(c => [Markup.button.callback(comboLabel(c), `tap:combo:${c.id}`)]);
+        rows.push([Markup.button.callback('🍼 Breast / Formula / Latch →', 'tap:feed')]);
+        await ctx.reply(
+          `*${baby.name} — log feed*\n\nTap a combo to log now, or choose a feed type:`,
+          { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) },
+        );
+        return;
+      }
+
       await stageWhenFromText(ctx, baby, 'feed');
       return;
     }
