@@ -24,52 +24,47 @@ A daily wellness companion for pregnancy, postpartum recovery, and baby developm
 - **Feed** — breastfeed (latch: side + duration) or bottle/expressed milk (ml)
 - **Sleep** — start/end a sleep session; open sessions tracked in real time
 - **Diaper** — wet, dirty, or both
-- **Status view** — shows the last event per category with the clock time it happened, plus today's running totals:
-  - 🍼 feeds · total ml · total latch time
-  - 😴 sleep duration today
-  - 🧷 wet count (W) · dirty count (D)
-- **Next-feed window** — personalised prediction of when the next feed is due (see Bayesian predictor below)
-- **Day summary** — pinned at the top of the dashboard
+- **🤽 Pump** _(Pro)_ — log a pump session with optional ml amount; auto-sets the next pump reminder
+- **Feed combos** _(Pro)_ — save formula+breast pairs (e.g. 90ml F + 60ml B) as one-tap buttons
+- **Status view** — last event per category with time + today's running totals
+- **Day summary** — multi-line breakdown: feeds, ml by type, sleep, diapers, volume vs. guidance
+- **Next-feed window** _(Pro)_ — Bayesian prediction of when the next feed is due
 
-### Bayesian feed predictor
+### Bayesian feed predictor _(Pro)_
 
-The next-feed window is computed in `src/babyLog/feedWindow.js` by blending two signals:
+Computed in `src/babyLog/feedWindow.js` by blending volume and trend signals:
 
-**Volume signal** — how much the baby took × a digestion multiplier per feed type:
+**Volume signal** — how much the baby took × digestion multiplier:
 
 | Feed type | Multiplier | Rationale |
 |-----------|-----------|-----------|
 | Latch / Breast | 1.0× | Baseline |
-| Formula | 1.25× | Digests slower — stays full longer |
+| Formula | 1.25× | Digests slower |
 | Combo | 1.1× | Mixed |
 
-`oz × multiplier → predicted hours`; latch duration uses `min × 0.15 oz`.
-
-**Trend signal** — a recency-weighted average of the baby's own inter-feed intervals, conditioned on:
-
-1. **Feed type** — formula→formula intervals are kept separate from latch→latch; formula digests slower so mixing types would bias the prediction
-2. **Time of day** — overnight intervals (10pm–6am SGT) tend to be longer; the predictor uses night history for night predictions and day history for day predictions
-3. **Recency decay** — each older interval is down-weighted by 0.85× relative to the one after it, so a shift in the baby's natural rhythm shows up within a few feeds rather than requiring the old data to drop out of the window
-
-The model picks the most specific set of matching intervals (type + night → type only → night only → all) that has at least 2 data points, then applies the weighted average to that set.
+**Trend signal** — recency-weighted average of the baby's own inter-feed intervals, conditioned on feed type and time of day (overnight vs. day), with a 0.85× recency decay per older interval.
 
 **Blending weights** adapt to data confidence:
 
 | History depth | Volume weight | Trend weight |
 |--------------|--------------|-------------|
-| < 3 valid intervals | 100% | 0% |
+| < 3 intervals | 100% | 0% |
 | 3–5 intervals | 60% | 40% |
 | 6+ intervals | 40% | 60% |
 
-**Age-based prior** — when there is no volume signal and no history, the fallback grows from 1.5h at birth to 3.0h at 10 weeks, matching typical developmental spacing rather than using a fixed 3h regardless of age.
+### Overnight report _(Pro)_
 
-The result is displayed as `~HH:MMam (in Xh Ym) · by HH:MMam` — a prediction window with a hard 3-hour wake cap.
+Sent at 7am SGT — combines the overnight summary + morning brief in one message:
+- Estimated sleep from feed gaps (no manual sleep logging required)
+- Longest stretch, number of wake-ups, total overnight feeds
+- Feed list with times
+- Postpartum recovery tip for the day (day-specific, not generic buckets)
 
----
+Free users receive a basic feed count + Pro upsell.
 
 ### Paper notebook scanning
 
-`/scan` — photograph your sleep/feed notebook pages. The bot reads the grid using Gemini Vision, confirms the rows found, and saves them to the database. Paper data always wins over tap data for the same day.
+`/scan` — photograph your sleep/feed notebook pages. The bot reads the grid using Gemini Vision, confirms the rows found, and saves them. Paper data always wins over tap data for the same day.
 
 ### Multi-caregiver support
 
@@ -77,21 +72,32 @@ The result is displayed as `~HH:MMam (in Xh Ym) · by HH:MMam` — a prediction 
 
 ### Clinical features
 
-- **EPDS mood screening** — Edinburgh Postnatal Depression Scale at Day 7, 14, and 30 after baby_dob. Score-based guidance and referral for high-risk results (Q10 > 0 always escalates)
-- **Vaccination reminders** — automatic 3-day alerts before each Singapore NCIS milestone
-- **Newborn alerts** — if baby is ≤ 14 days old: warns when last feed > 3 h ago; warns if no diaper logged in 3 h
-- **/urgent** — always-accessible emergency command with A&E criteria, C-section-specific warning signs, and baby danger signs with Singapore helpline numbers
-- **Streak counter** — consecutive days of activity shown in morning briefing and progress
-- **Weekly Sunday summary** — automated weekly check-in with mode context
-- **Timezone-aware scheduling** — briefings sent at each user's local 8am/7pm
+- **EPDS mood screening** — Edinburgh Postnatal Depression Scale at Day 7, 14, and 30. Score-based guidance; Q10 > 0 always escalates
+- **Vaccination reminders** — 3-day alerts before each Singapore NCIS milestone
+- **Newborn alerts** — if baby ≤ 14 days old: warns when last feed > 3h or no diaper in 3h
+- **/urgent** — always-accessible emergency command with A&E criteria, C-section warning signs, and Singapore helpline numbers
 
-### Other
+### Feedback loop
 
-- **Partner access** — `/share` generates a 6-character code; partner views your daily briefing read-only via `/view`
-- **/undo** — unmark the last logged task
-- **NLP task logging** — "I did tummy time and read to the baby" → matches and logs tasks automatically
-- **NLP reminders** — "Remind me Friday to call the hospital" → parsed, saved, confirmed with date
-- **Better fallback** — when no task matches, shows examples from your pending tasks
+`/feedback <text>` — users send feedback directly in the bot. Stored in Supabase `feedback` table. If `GITHUB_TOKEN` and `GITHUB_REPO` are set, automatically creates a GitHub issue titled `[Feedback] ...`.
+
+---
+
+## Plans
+
+| Feature | Free | Pro |
+|---------|------|-----|
+| Feed / sleep / diaper logging | ✅ | ✅ |
+| Today's dashboard | ✅ | ✅ |
+| Basic +3h feed estimate | ✅ | ✅ |
+| Wellness modes (Prepare / Recover / Tumbuh) | ✅ | ✅ |
+| /feedback | ✅ | ✅ |
+| 🔮 Bayesian feed prediction | — | ✅ |
+| Full overnight report (sleep estimates + attribution) | — | ✅ |
+| Feed combos (one-tap formula+breast) | — | ✅ |
+| 🤽 Pump timer + reminders | — | ✅ |
+
+**Pro costs 299 Telegram Stars/month (~$3 SGD).** Users pay with `/pro`; gift codes via `/giftpro`.
 
 ---
 
@@ -100,34 +106,39 @@ The result is displayed as `~HH:MMam (in Xh Ym) · by HH:MMam` — a prediction 
 | Command | Description |
 |---------|-------------|
 | `/today` | 📋 See today's tasks |
-| `/tip` | 💡 Get a wellness tip for today |
-| `/week` | 📅 See your current week or day summary |
+| `/tip` | 💡 Get a wellness tip |
+| `/week` | 📅 Week or day summary |
 | `/progress` | 📊 Completion count + streak |
-| `/switch` | 🔄 Switch mode (Prepare / Recover / Tumbuh) |
-| `/log` | 📔 Baby log: tap to record feed / sleep / diaper |
-| `/dashboard` | 📊 Baby log dashboard — recent events + day summary |
-| `/scan` | 📷 Scan a notebook page (Gemini Vision OCR) |
+| `/switch` | 🔄 Switch mode |
+| `/log` | 📔 Baby log tap dashboard |
+| `/dashboard` | 📊 Baby log dashboard |
+| `/scan` | 📷 Scan a notebook page |
 | `/newbaby` | 🤍 Set up a baby profile |
-| `/joinbaby` | 🤝 Join an existing baby profile with a code |
-| `/reminders` | 📌 View and manage your reminders |
-| `/urgent` | 🚨 Emergency danger signs & Singapore contacts |
-| `/undo` | ↩️ Unmark last logged task |
-| `/share` | 🔗 Generate partner/doula read-only access code |
-| `/view` | 👀 View a shared briefing (partner use) |
+| `/joinbaby` | 🤝 Join with a code |
+| `/weight` | ⚖️ Log baby weight (kg) |
+| `/milestone` | 🌟 Log a baby milestone |
+| `/reminders` | 📌 View and manage reminders |
+| `/urgent` | 🚨 Emergency contacts |
+| `/undo` | ↩️ Undo last logged event |
+| `/share` | 🔗 Generate partner access code |
+| `/view` | 👀 View a shared briefing |
+| `/pro` | ⭐ Upgrade to Pro (Telegram Stars) |
+| `/redeem` | 🎁 Redeem a Pro gift code |
+| `/addcombo` | 🍶🍼 Pro: save a feed combo — `/addcombo 90 60 Name` |
+| `/mycombos` | 🍶🍼 Pro: list saved combos |
+| `/deletecombo` | 🗑 Pro: delete a saved combo |
+| `/feedback` | 📝 Send feedback or feature request |
 | `/about` | ℹ️ What is Sakina? |
-| `/reset` | ⚠️ Reset your profile and start fresh |
+| `/reset` | ⚠️ Reset profile |
 | `/start` | ▶️ Register or restart onboarding |
 
-### Natural language
+### Admin-only commands
 
-**Log tasks:**
-> "I did tummy time and read a book to the baby"
-> → Logs matching tasks automatically ✅
-
-**Set reminders:**
-> "Remind me on Friday to call the hospital"
-> "Add a reminder for 10 Sep to pack my hospital bag"
-> → Saved to database, confirmed with parsed date 📌
+| Command | Description |
+|---------|-------------|
+| `/announce` | 📣 Broadcast a message to all users |
+| `/grantpro` | ✅ Grant Pro to a user ID: `/grantpro <userId> [days]` |
+| `/giftpro` | 🎁 Create a redeemable gift code: `/giftpro [days]` |
 
 ---
 
@@ -136,33 +147,38 @@ The result is displayed as `~HH:MMam (in Xh Ym) · by HH:MMam` — a prediction 
 ```
 src/
   bot.js              ← Telegraf entry point (webhook + polling fallback)
-                         HTTP server with /health endpoint for keep-alive pinging
-  scheduler.js        ← Hourly cron: morning/evening per user timezone
-                         Sunday weekly summary
-                         Daily: EPDS prompts + vaccination reminders
-  db.js               ← Supabase: users, task_completions, reminders,
-                         health_logs, epds_sessions, milestone_completions,
-                         share_tokens, baby_events, paper_rows, paper_scans,
-                         user_log_messages
+  scheduler.js        ← Hourly cron: morning/evening briefings, feed/pump reminders,
+                         7am overnight report, EPDS, vaccination reminders
+  db.js               ← Supabase client
+  billing.js          ← Telegram Stars payments: isPro(), grantPro(), sendProInvoice(),
+                         handlePreCheckout(), handleSuccessfulPayment(),
+                         gift codes (createGift/redeem), admin grant
+  feedback.js         ← /feedback storage + GitHub issue creation
+                         /announce admin broadcast
   handlers/
     message.js        ← Router: EPDS intercept → reminder → task log → fallback
-    callbacks.js      ← Inline keyboard: mode, delivery type, EPDS, milestone advance
-    onboarding.js     ← Multi-step: start → mode → delivery_type → date → done
-    commands.js       ← /about /week /tip /reset /reminders /urgent /undo /share /view
+    callbacks.js      ← Inline keyboard callbacks
+    onboarding.js     ← Multi-step onboarding flow
+    commands.js       ← Misc commands
   services/
-    content.js        ← Mode content + two recover tracks + milestone gating
-                         Vaccination schedule (NCIS)
-    claude.js         ← Gemini: task parsing + empathetic responses
-    reminders.js      ← Gemini: reminder intent detection + date resolution
+    content.js        ← Mode content + recovery tracks + milestone gating
+    claude.js         ← Gemini: NLP task matching + warm responses
+    reminders.js      ← Gemini: reminder intent detection + date parsing
   babyLog/
-    index.js          ← Registers all baby log handlers with the bot instance
-    tap.js            ← /log and /dashboard command handlers; keyboard UI; sleep toggle
-    format.js         ← statusLine(), daySummary(), clock(), span(), ageText()
-    scan.js           ← /scan photo collection → Gemini Vision OCR → review → save
+    index.js          ← Registers all baby log handlers
+    tap.js            ← /log dashboard: feed/sleep/diaper/pump/combo logging,
+                         keyboards, inline callbacks, /weight /milestone
+    format.js         ← statusLine(), daySummary(), clock(), span()
+    feedWindow.js     ← Bayesian feed predictor (Pro)
+    feedReminder.js   ← In-memory feed + pump reminder store
+    combos.js         ← feed_combos CRUD helpers (Pro)
+    brief.js          ← Morning brief + day-specific postpartum recovery tips
+    scheduler.js      ← 7am overnight report + newborn feed alerts
+    scan.js           ← /scan: photo OCR via Gemini Vision
     query.js          ← Supabase helpers: baby lookup, event CRUD, status fetch
   data/
-    birthPlan.json    ← 9 weeks × weekend tasks + daily habits
-    babyDev.json      ← 6 phases × 13 week-periods × motor/social/cognitive tasks
+    birthPlan.json
+    babyDev.json
 ```
 
 ---
@@ -171,133 +187,140 @@ src/
 
 ### 1. Create a Telegram Bot
 
-1. Open [@BotFather](https://t.me/BotFather) on Telegram
-2. Send `/newbot` and follow the prompts
-3. Copy your **BOT_TOKEN**
+1. Open [@BotFather](https://t.me/BotFather) on Telegram → `/newbot`
+2. Copy your **BOT_TOKEN**
 
 ### 2. Set up Supabase
 
-1. Create a free project at [supabase.com](https://supabase.com)
-2. Go to **SQL Editor** and run the schema files **in order**:
+1. Create a project at [supabase.com](https://supabase.com)
+2. Run the SQL files **in order** in the SQL editor:
 
-```
-1. supabase_schema.sql      — users + task_completions
-2. supabase_reminders.sql   — reminders table
-3. supabase_v3.sql          — delivery_type, health_logs, EPDS, milestone_completions, share_tokens
-4. supabase_baby_log.sql    — baby_events, paper_rows, paper_scans, user_log_messages + RPCs
-```
+| File | Purpose |
+|------|---------|
+| `supabase_schema.sql` | `users`, `task_completions` |
+| `supabase_reminders.sql` | `reminders` |
+| `supabase_v3.sql` | `health_logs`, `epds_sessions`, `milestone_completions`, `share_tokens` |
+| `supabase_baby_log.sql` | `baby_events`, `paper_rows`, `paper_scans`, RPCs |
+| `supabase_billing.sql` | `payments` table, `plan` / `plan_expires_at` on `users` |
+| `supabase_gift_codes.sql` | `gift_codes` table |
+| `supabase_new_features.sql` | `feedback`, `feed_combos`, `pump_interval_hours` on `users` |
 
-3. Copy your **Project URL** and **service_role** key (Settings → API)
+3. Copy your **Project URL** and **service_role key** (Settings → API)
 
 ### 3. Get a Gemini API key
 
 1. Go to [aistudio.google.com](https://aistudio.google.com)
 2. Click **Get API key → Create API key**
-3. Copy the key (starts with `AIza...`)
 
-### 4. Configure Environment Variables
+### 4. Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
-
 ```env
-BOT_TOKEN=your_bot_token_from_botfather
+# Required
+BOT_TOKEN=your_telegram_bot_token
 GEMINI_API_KEY=your_gemini_api_key
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=your_service_role_key
-WEBHOOK_URL=                    # leave empty for local dev (uses polling)
+
+# Production (leave empty for local dev — uses polling)
+WEBHOOK_URL=https://your-service.onrender.com
 PORT=3000
+
+# Admin (your Telegram user ID — enables /grantpro, /giftpro, /announce)
+ADMIN_USER_ID=123456789
+
+# Optional: GitHub issue creation from /feedback
+GITHUB_TOKEN=your_github_pat
+GITHUB_REPO=owner/repo-name
 ```
 
-### 5. Install and Run Locally
+### 5. Run locally
 
 ```bash
 npm install
 npm start
 ```
 
-The bot starts in **polling mode** when `WEBHOOK_URL` is not set — perfect for local development.
+The bot starts in **polling mode** when `WEBHOOK_URL` is not set.
 
 ---
 
 ## Deploy to Render
 
-1. Push this project to a GitHub repo
-2. Go to [render.com](https://render.com) → New → Web Service → connect your repo
-3. Set **Build Command** to `npm install` and **Start Command** to `npm start`
-4. Add environment variables in Render's **Environment** tab:
-   - `BOT_TOKEN`
-   - `GEMINI_API_KEY`
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_KEY`
-   - `PORT=3000`
-5. Once deployed, copy the service URL (e.g. `https://sakina-bot.onrender.com`)
-6. Add one more variable: `WEBHOOK_URL=https://sakina-bot.onrender.com`
-7. Render redeploys automatically in webhook mode
+1. Push to GitHub
+2. Render → New → Web Service → connect repo
+3. **Build Command:** `npm install` | **Start Command:** `npm start`
+4. Add all environment variables from the section above
+5. Once deployed, copy the service URL and set it as `WEBHOOK_URL`
+6. Render redeploys automatically
 
-> **Keeping the service warm:** Render free-tier services sleep after ~15 min of inactivity. Set up [UptimeRobot](https://uptimerobot.com) to ping `https://your-service.onrender.com/health` every 5 minutes to prevent cold-starts.
+> **Keeping warm:** Render free-tier services sleep after ~15 min. Ping `https://your-service.onrender.com/health` every 5 min via [UptimeRobot](https://uptimerobot.com).
 
 ---
 
-## Database Schema
+## Payments — Telegram Stars
 
-Run SQL files in Supabase in this order:
+Sakina uses **Telegram Stars (XTR)** for in-app Pro subscriptions:
 
-| File | Tables | Purpose |
-|------|--------|---------|
-| `supabase_schema.sql` | `users`, `task_completions` | Core profile + task tracking |
-| `supabase_reminders.sql` | `reminders` | Custom date-based reminders |
-| `supabase_v3.sql` | `health_logs`, `epds_sessions`, `milestone_completions`, `share_tokens` | Health tracking, mood screening, milestone gating, partner access |
-| `supabase_baby_log.sql` | `baby_events`, `paper_rows`, `paper_scans`, `user_log_messages` | Tap log, notebook scanning, status tracking |
-
-The `supabase_baby_log.sql` file also creates:
-
-- `baby_status(p_baby)` RPC — returns last feed/sleep/diaper + today's totals (feeds, ml, latch_min, sleep_min, wet, dirty) in one query
-- `baby_grid()` / `baby_days()` / `baby_averages()` — sleep/feed grid and statistics
-- `sgt_row_date(ts)` — maps a timestamp to a notebook row date (day starts 7pm SGT)
-- `baby_events_effective` view — paper data wins over tap data for confirmed days
-
-### New columns added to `users` (v3)
-
-| Column | Type | Purpose |
-|--------|------|---------|
-| `delivery_type` | text | `'vaginal'` or `'cesarean'` — selects recovery track |
-| `streak_days` | int | Consecutive days with ≥1 task logged |
-| `last_active_date` | date | Last day a task was completed |
-| `tumbuh_week_id` | text | Override for milestone-gated Tumbuh (null = auto by age) |
-| `baby_name` | text | Baby's name (set via /newbaby) |
-| `baby_join_code` | text | Unique code for partner to join via /joinbaby |
+- No payment provider setup needed in BotFather — Stars are native to Telegram
+- `provider_token: ''` + `currency: 'XTR'` in the invoice
+- `pre_checkout_query` answered immediately (10s deadline)
+- `successful_payment` is idempotent — keyed on `telegram_payment_charge_id`
+- **Gift codes**: admin runs `/giftpro [days]` → shares the code → recipient redeems with `/redeem CODE`
 
 ---
 
-## Onboarding Flow
+## Database schema
 
-```
-/start
-  └─ Mode selection (inline keyboard)
-      ├─ 🌱 Prepare  → What is your due date? (DD/MM/YYYY)
-      │                  → done
-      ├─ 🌿 Recover  → How was your baby born? (vaginal / cesarean)
-      │                  → What is your baby's date of birth?
-      │                  → done
-      └─ 🌸 Tumbuh   → What is your baby's date of birth?
-                        → done
-```
+### Core tables
+
+| Table | Purpose |
+|-------|---------|
+| `users` | One row per Telegram user. Includes `plan`, `plan_expires_at`, `pump_interval_hours` |
+| `task_completions` | Logged wellness tasks |
+| `reminders` | Date-based custom reminders |
+| `health_logs` | Daily health check-ins |
+| `epds_sessions` | Mood screening sessions + scores |
+| `milestone_completions` | Tumbuh milestone records |
+| `share_tokens` | Partner read-only access codes |
+
+### Baby log tables
+
+| Table | Purpose |
+|-------|---------|
+| `baby_events` | All tap-logged events (feed, sleep, diaper, pump, note, weight, milestone) |
+| `baby_events_effective` | View: paper wins over tap for confirmed days |
+| `paper_rows` | Rows confirmed from notebook scans |
+| `paper_scans` | Scan metadata |
+| `user_log_messages` | Dashboard message IDs (for in-place editing) |
+
+### Billing tables
+
+| Table | Purpose |
+|-------|---------|
+| `payments` | Telegram Stars payment audit log |
+| `gift_codes` | One-time redeemable Pro gift codes |
+
+### Feature tables
+
+| Table | Purpose |
+|-------|---------|
+| `feedback` | User feedback from `/feedback` command |
+| `feed_combos` | Saved formula+breast pairs per baby (Pro, max 5) |
 
 ---
 
 ## EPDS Screening
 
-The Edinburgh Postnatal Depression Scale runs automatically at **Day 7, 14, and 30** after baby's date of birth:
+Runs automatically at Day 7, 14, and 30 after baby's DOB:
 
-- 10 questions via inline keyboard buttons
-- Score range: 0–30
-- Score ≥ 13: high-risk guidance + IMH/SSO contact numbers
-- Score 10–12: moderate — advise GP consultation
-- Question 10 (self-harm) score > 0: always escalate regardless of total score
+- 10 questions via inline keyboard (0–3 per question, total 0–30)
+- Score ≥ 13: high-risk guidance + IMH/SSO numbers
+- Score 10–12: moderate — advise GP
+- Q10 (self-harm) > 0: always escalates regardless of total
 
 ---
 
@@ -320,8 +343,8 @@ Automatic reminders 3 days before each milestone:
 ## Tech Stack
 
 - **Telegraf v4** — Telegram bot framework (ES modules)
-- **Google Gemini** (`gemini-3.5-flash-lite`) — NLP task matching, reminder intent, notebook OCR, warm responses
-- **Supabase** — PostgreSQL database with RPC functions for multi-user state
-- **node-cron** — Hourly cron with per-user timezone support
-- **Node.js 22+** — ES modules throughout, no build step
-- **Intl.DateTimeFormat** — Timezone-aware scheduling (no external packages)
+- **Google Gemini** (`gemini-3.5-flash-lite`) — NLP task matching, reminder parsing, notebook OCR
+- **Supabase** — PostgreSQL with RPC functions
+- **node-cron** — Hourly scheduler with per-user timezone support
+- **Node.js 22+** — ES modules, no build step
+- **Telegram Stars (XTR)** — Native in-app payments, no card gateway needed
