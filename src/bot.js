@@ -19,7 +19,7 @@ import {
 import { initScheduler } from './scheduler.js';
 import { supabase } from './db.js';
 import { registerBabyLog } from './babyLog/index.js';
-import { sendProInvoice, handlePreCheckout, handleSuccessfulPayment, handleGrantPro } from './billing.js';
+import { sendProInvoice, handlePreCheckout, handleSuccessfulPayment, handleGrantPro, handleCreateGift, handleRedeem } from './billing.js';
 import http from 'http';
 
 // ── Bot setup ──────────────────────────────────────────────────────────────────
@@ -61,6 +61,8 @@ bot.command('share',     ctx => handleShare(ctx));
 bot.command('view',      ctx => handleView(ctx));
 bot.command('pro',       ctx => sendProInvoice(ctx));
 bot.command('grantpro', ctx => handleGrantPro(ctx));
+bot.command('giftpro',  ctx => handleCreateGift(ctx));
+bot.command('redeem',   ctx => handleRedeem(ctx));
 bot.command('help',      ctx => handleMessage(ctx));
 
 // ── Text messages ──────────────────────────────────────────────────────────────
