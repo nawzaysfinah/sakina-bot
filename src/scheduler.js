@@ -105,7 +105,7 @@ async function hourlyCheck() {
 async function checkFeedReminders() {
   if (!botInstance) return;
   try {
-    const { popDueReminders, popDueAutoReminders } = await import('./babyLog/feedReminder.js');
+    const { popDueReminders, popDueAutoReminders, popDuePumpReminders } = await import('./babyLog/feedReminder.js');
 
     const resolveChat = async (userId) => {
       if (!supabaseRef) return null;
@@ -137,6 +137,21 @@ async function checkFeedReminders() {
         await botInstance.telegram.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
       } catch (e) {
         console.error(`Auto feed reminder send failed for user ${userId}:`, e.message);
+      }
+    }
+
+    // Pump reminders
+    for (const { userId } of popDuePumpReminders()) {
+      try {
+        const chatId = await resolveChat(userId);
+        if (!chatId) continue;
+        await botInstance.telegram.sendMessage(
+          chatId,
+          `🤽 *Time to pump!*\n\nTap /log → 🤽 Pump to log it.`,
+          { parse_mode: 'Markdown' },
+        );
+      } catch (e) {
+        console.error(`Pump reminder send failed for user ${userId}:`, e.message);
       }
     }
   } catch (e) {

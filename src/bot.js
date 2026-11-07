@@ -20,6 +20,7 @@ import { initScheduler } from './scheduler.js';
 import { supabase } from './db.js';
 import { registerBabyLog } from './babyLog/index.js';
 import { sendProInvoice, handlePreCheckout, handleSuccessfulPayment, handleGrantPro, handleCreateGift, handleRedeem } from './billing.js';
+import { handleFeedback, handleAnnounce } from './feedback.js';
 import http from 'http';
 
 // ── Bot setup ──────────────────────────────────────────────────────────────────
@@ -63,6 +64,8 @@ bot.command('pro',       ctx => sendProInvoice(ctx));
 bot.command('grantpro', ctx => handleGrantPro(ctx));
 bot.command('giftpro',  ctx => handleCreateGift(ctx));
 bot.command('redeem',   ctx => handleRedeem(ctx));
+bot.command('feedback', ctx => handleFeedback(ctx));
+bot.command('announce', ctx => handleAnnounce(ctx, bot));
 bot.command('help',      ctx => handleMessage(ctx));
 
 // ── Text messages ──────────────────────────────────────────────────────────────
@@ -96,7 +99,11 @@ async function start() {
     { command: 'urgent',    description: '🚨 Emergency danger signs & contacts' },
     { command: 'undo',      description: '↩️ Unmark last logged task' },
     { command: 'share',     description: '🔗 Share your journal with partner/doula' },
-    { command: 'pro',       description: '⭐ Upgrade to Pro (feed predictions + overnight report)' },
+    { command: 'pro',        description: '⭐ Upgrade to Pro (feed predictions + overnight report)' },
+    { command: 'addcombo',   description: '🍶🍼 Pro: save a formula+breast combo — /addcombo 90 60 Name' },
+    { command: 'mycombos',   description: '🍶🍼 Pro: view & manage saved combos' },
+    { command: 'redeem',     description: '🎁 Redeem a Pro gift code' },
+    { command: 'feedback',   description: '📝 Send feedback or a feature request' },
     { command: 'about',     description: 'ℹ️ What is Sakina?' },
     { command: 'reset',     description: '⚠️ Reset your profile and start fresh' },
     { command: 'start',     description: '▶️ Restart onboarding' },
