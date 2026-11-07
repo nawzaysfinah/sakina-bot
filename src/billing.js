@@ -102,6 +102,25 @@ export function proUpsellText(featureName) {
   return `_${featureName} is a Pro feature._\n\nPro unlocks:\n• 🔮 Crystal-ball feed timing\n• 🌙 Full overnight report with attribution\n• 📈 7-day trend averages\n\n299 Stars/month (~$3).`;
 }
 
+// ── Admin grant ───────────────────────────────────────────────────────────────
+// /grantpro <userId> [days]  — owner-only, identified by ADMIN_USER_ID env var
+
+export async function handleGrantPro(ctx) {
+  const adminId = process.env.ADMIN_USER_ID ? Number(process.env.ADMIN_USER_ID) : null;
+  if (!adminId || ctx.from.id !== adminId) {
+    return ctx.reply('Not authorised.');
+  }
+  const parts = ctx.message.text.split(/\s+/);
+  const targetId = Number(parts[1]);
+  const days     = Number(parts[2] || 30);
+  if (!targetId) return ctx.reply('Usage: /grantpro <userId> [days]');
+  const expiresAt = await grantPro(targetId, days);
+  const until = new Date(expiresAt).toLocaleDateString('en-SG', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Singapore',
+  });
+  return ctx.reply(`✅ Pro granted to ${targetId} until ${until}.`);
+}
+
 // ── Payment event handlers ─────────────────────────────────────────────────────
 
 export async function handlePreCheckout(ctx) {
