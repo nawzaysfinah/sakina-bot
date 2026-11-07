@@ -1,4 +1,4 @@
-// In-memory feed reminders. Lost on restart — acceptable for convenience nudges.
+// In-memory feed and pump reminders. Lost on restart — acceptable for convenience nudges.
 
 // ── Manual reminders (user-set via ⏰ button) ─────────────────────────────────
 // userId → { remindAt: Date, babyName: string }
@@ -48,6 +48,31 @@ export function popDueAutoReminders(now = new Date()) {
     });
     if (still.length) autoStore.set(userId, still);
     else autoStore.delete(userId);
+  }
+  return due;
+}
+
+// ── Pump reminders ─────────────────────────────────────────────────────────────
+// userId → { remindAt: Date, intervalHours: number }
+const pumpStore = new Map();
+
+export function setPumpReminder(userId, intervalHours = 3) {
+  const remindAt = new Date(Date.now() + intervalHours * 3600 * 1000);
+  pumpStore.set(String(userId), { remindAt, intervalHours });
+}
+
+export function clearPumpReminder(userId) {
+  pumpStore.delete(String(userId));
+}
+
+export function getPumpReminder(userId) {
+  return pumpStore.get(String(userId)) ?? null;
+}
+
+export function popDuePumpReminders(now = new Date()) {
+  const due = [];
+  for (const [userId, r] of pumpStore.entries()) {
+    if (r.remindAt <= now) { due.push({ userId, ...r }); pumpStore.delete(userId); }
   }
   return due;
 }

@@ -5,9 +5,10 @@
 
 import { Markup } from 'telegraf';
 import { clock, span, statusLine, nightStatusLine, currentRowDateStr, addDays, dayLabel, hrs } from './format.js';
-import { setFeedReminder, clearFeedReminder, getFeedReminder, setAutoFeedReminders, clearAutoFeedReminders } from './feedReminder.js';
+import { setFeedReminder, clearFeedReminder, getFeedReminder, setAutoFeedReminders, clearAutoFeedReminders, setPumpReminder, getPumpReminder, clearPumpReminder } from './feedReminder.js';
 import { fetchFeedWindow, feedVolumeGuidance } from './feedWindow.js';
 import { isPro, proUpsellText, proUpsellKeyboard } from '../billing.js';
+import { getCombos, saveCombo, deleteCombo, comboLabel } from './combos.js';
 
 const UNDO_MINUTES  = 30;
 const RETRO_TTL_MS  = 3 * 60 * 1000;  // 3 min to tap/type a structured value before pending expires
@@ -323,16 +324,22 @@ function periodNavKeyboard() {
 
 // ── Keyboards ─────────────────────────────────────────────────────────────────
 
-function keyboard(pro = true) {
+function keyboard(pro = true, combos = []) {
   const rows = [
     [Markup.button.callback('🍼 Feed', 'tap:feed'), Markup.button.callback('😴 Asleep', 'tap:sleep')],
     [Markup.button.callback('💧 Wet', 'tap:wet'), Markup.button.callback('💩 Dirty', 'tap:dirty'),
       Markup.button.callback('💧💩 Both', 'tap:both')],
-    [Markup.button.callback('📝 Note', 'tap:note'), Markup.button.callback('💊 PD', 'tap:pd'),
-      Markup.button.callback('📋 Today', 'tap:history')],
+    [Markup.button.callback('📝 Note', 'tap:note'), Markup.button.callback('🤽 Pump', 'tap:pump'),
+      Markup.button.callback('💊 PD', 'tap:pd'), Markup.button.callback('📋 Today', 'tap:history')],
     [Markup.button.callback('↩️ Undo last', 'tap:undo'), Markup.button.callback('⏰', 'tap:remind'),
       Markup.button.callback('🔄', 'tap:refresh')],
   ];
+  // Pro: show saved combos as quick-tap rows
+  if (pro && combos.length) {
+    for (const c of combos) {
+      rows.splice(1, 0, [Markup.button.callback(comboLabel(c), `tap:combo:${c.id}`)]);
+    }
+  }
   if (!pro) rows.push([Markup.button.callback('⭐ Upgrade to Pro — unlock 🔮 predictions', 'billing_pro')]);
   return Markup.inlineKeyboard(rows);
 }
@@ -461,10 +468,12 @@ export function registerTapLog(bot, { supabase, queries }) {
       isPro(ctx.from.id),
     ]);
     const now = new Date();
-    // 🔮 Bayesian feed prediction is a Pro feature; free users get the +3h fallback
-    const fw  = (st?.last_feed && pro)
-      ? await fetchFeedWindow(baby.id, st.last_feed.detail, new Date(st.last_feed.start_at), supabase, baby.birth_date)
-      : null;
+    const [fw, combos] = await Promise.all([
+      (st?.last_feed && pro)
+        ? fetchFeedWindow(baby.id, st.last_feed.detail, new Date(st.last_feed.start_at), supabase, baby.birth_date)
+        : Promise.resolve(null),
+      pro ? getCombos(supabase, baby.id) : Promise.resolve([]),
+    ]);
     const timer = latchTimerLine(ctx.from.id, now);
     const sl    = isSgtNight(now)
       ? nightStatusLine(st, now, baby.birth_date, fw)
@@ -472,7 +481,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     const status = timer ? `${timer}\n${sl}` : sl;
     const text  = `${baby.name} · ${clock(now)}\n\n${status}${note ? `\n\n✓ ${note}` : ''}`;
     const lSide = activeLatch.get(String(ctx.from.id))?.side;
-    const kb    = timer ? latchTimerKeyboard(lSide === 'left' ? 'L' : lSide === 'right' ? 'R' : lSide === 'both' ? 'B' : null) : keyboard(pro);
+    const kb    = timer ? latchTimerKeyboard(lSide === 'left' ? 'L' : lSide === 'right' ? 'R' : lSide === 'both' ? 'B' : null) : keyboard(pro, combos);
     return { text, kb };
   }
 
@@ -1632,5 +1641,189 @@ export function registerTapLog(bot, { supabase, queries }) {
       detail: { type: 'milestone', text },
     });
     return ctx.reply(`🌟 *"${text}"* saved for ${baby.name}!`, { parse_mode: 'Markdown' });
+  });
+
+  // ── 🤽 Pump ───────────────────────────────────────────────────────────────────
+
+  bot.action('tap:pump', async (ctx) => {
+    await ctx.answerCbQuery();
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    const pro = await isPro(ctx.from.id);
+    if (!pro) {
+      return ctx.reply(proUpsellText('Pump timer & reminders'), { parse_mode: 'Markdown', ...proUpsellKeyboard() });
+    }
+    const existing = getPumpReminder(ctx.from.id);
+    const reminderLine = existing
+      ? `\n\n_Next pump reminder: ${clock(existing.remindAt)}_`
+      : '';
+    const pumpKb = Markup.inlineKeyboard([
+      [Markup.button.callback('⚡ Now', 'tap:pump:now'),
+       Markup.button.callback('✏️ Enter amount', 'tap:pump:amount')],
+      [Markup.button.callback('⏰ Change interval', 'tap:pump:interval'),
+       Markup.button.callback('❌ Cancel', 'tap:back')],
+    ]);
+    await renderWithPrompt(ctx, baby, `🤽 *Log pump*${reminderLine}\n\nTap *Now* to log immediately, or *Enter amount* to record ml pumped.`, pumpKb);
+  });
+
+  bot.action('tap:pump:now', async (ctx) => {
+    await ctx.answerCbQuery('Pump logged ✓');
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    await insertAt(baby, ctx, { kind: 'pump', detail: null }, null);
+    // Auto-set reminder using the user's saved interval
+    const { data: user } = await supabase.from('users').select('pump_interval_hours').eq('id', ctx.from.id).maybeSingle();
+    const hours = user?.pump_interval_hours ?? 3;
+    setPumpReminder(ctx.from.id, hours);
+    const remindAt = getPumpReminder(ctx.from.id)?.remindAt;
+    const note = `🤽 Pumped · next reminder ${clock(remindAt)}`;
+    const { text, kb } = await render(ctx, baby, note);
+    try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
+  });
+
+  bot.action('tap:pump:amount', async (ctx) => {
+    await ctx.answerCbQuery();
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    const amountKb = Markup.inlineKeyboard([
+      [[30, 60, 90, 120].map(ml => Markup.button.callback(`${ml}ml`, `tap:pump:log:${ml}`))],
+      [Markup.button.callback('⏭ Skip amount', 'tap:pump:now'),
+       Markup.button.callback('❌ Cancel', 'tap:back')],
+    ]);
+    await renderWithPrompt(ctx, baby, '🤽 *How much did you pump?*', amountKb);
+  });
+
+  bot.action(/^tap:pump:log:(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery('Pump logged ✓');
+    const ml   = parseInt(ctx.match[1]);
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    await insertAt(baby, ctx, { kind: 'pump', detail: { total_ml: ml } }, null);
+    const { data: user } = await supabase.from('users').select('pump_interval_hours').eq('id', ctx.from.id).maybeSingle();
+    const hours = user?.pump_interval_hours ?? 3;
+    setPumpReminder(ctx.from.id, hours);
+    const remindAt = getPumpReminder(ctx.from.id)?.remindAt;
+    const note = `🤽 ${ml}ml pumped · next reminder ${clock(remindAt)}`;
+    const { text, kb } = await render(ctx, baby, note);
+    try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
+  });
+
+  bot.action('tap:pump:interval', async (ctx) => {
+    await ctx.answerCbQuery();
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    const intervalKb = Markup.inlineKeyboard([
+      [[2, 3, 4].map(h => Markup.button.callback(`${h}h`, `tap:pump:setinterval:${h}`))],
+      [Markup.button.callback('❌ Cancel', 'tap:back')],
+    ]);
+    await renderWithPrompt(ctx, baby, '⏰ *Pump reminder interval*\n\nHow often should Sakina remind you to pump?', intervalKb);
+  });
+
+  bot.action(/^tap:pump:setinterval:(\d+)$/, async (ctx) => {
+    const hours = parseInt(ctx.match[1]);
+    await ctx.answerCbQuery(`Pump reminder set to every ${hours}h ✓`);
+    await supabase.from('users').update({ pump_interval_hours: hours }).eq('id', ctx.from.id);
+    setPumpReminder(ctx.from.id, hours);
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    const { text, kb } = await render(ctx, baby, `⏰ Pump reminder: every ${hours}h`);
+    try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
+  });
+
+  // ── 🍶🍼 Combo feed (Pro) ─────────────────────────────────────────────────────
+
+  bot.action(/^tap:combo:(\d+)$/, async (ctx) => {
+    const comboId = parseInt(ctx.match[1]);
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    const pro = await isPro(ctx.from.id);
+    if (!pro) {
+      await ctx.answerCbQuery('Pro feature');
+      return ctx.reply(proUpsellText('Feed combos'), { parse_mode: 'Markdown', ...proUpsellKeyboard() });
+    }
+    const combos = await getCombos(supabase, baby.id);
+    const combo  = combos.find(c => c.id === comboId);
+    if (!combo) { await ctx.answerCbQuery('Combo not found'); return; }
+    await ctx.answerCbQuery(`${combo.name} logged ✓`);
+    const now = new Date();
+    // Log formula and breast as separate events (bypass merge logic by using insertAt directly)
+    const inserts = [];
+    if (combo.formula_ml > 0) {
+      inserts.push(supabase.from('baby_events').insert({
+        baby_id: baby.id, source: 'tap', logged_by: ctx.from.id,
+        kind: 'feed', start_at: now.toISOString(), precision_min: 1,
+        detail: { type: 'formula', amount_ml: combo.formula_ml, combo_id: comboId },
+      }));
+    }
+    if (combo.breast_ml > 0) {
+      inserts.push(supabase.from('baby_events').insert({
+        baby_id: baby.id, source: 'tap', logged_by: ctx.from.id,
+        kind: 'feed', start_at: now.toISOString(), precision_min: 1,
+        detail: { type: 'breast', amount_ml: combo.breast_ml, combo_id: comboId },
+      }));
+    }
+    await Promise.all(inserts);
+    await closeSleep(baby.id, now);
+    const note = `🍶🍼 ${combo.name} · ${[combo.formula_ml && `${combo.formula_ml}ml F`, combo.breast_ml && `${combo.breast_ml}ml B`].filter(Boolean).join('+')}`;
+    const { text, kb } = await render(ctx, baby, note);
+    try { await ctx.editMessageText(text, kb); } catch (e) { if (!/not modified/.test(e.description || e.message)) throw e; }
+  });
+
+  // ── /addcombo command (Pro) ───────────────────────────────────────────────────
+  // Usage: /addcombo <formula_ml> <breast_ml> [Name]
+
+  bot.command('addcombo', async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return ctx.reply('Set up a baby profile first with /newbaby.');
+    const pro = await isPro(ctx.from.id);
+    if (!pro) return ctx.reply(proUpsellText('Feed combos'), { parse_mode: 'Markdown', ...proUpsellKeyboard() });
+    const raw   = ctx.message.text.replace(/^\/addcombo\s*/i, '').trim();
+    const parts = raw.split(/\s+/);
+    const formulaMl = parseInt(parts[0]);
+    const breastMl  = parseInt(parts[1]);
+    const name      = parts.slice(2).join(' ') || 'My Mix';
+    if (isNaN(formulaMl) || isNaN(breastMl)) {
+      return ctx.reply('Usage: `/addcombo <formula_ml> <breast_ml> [name]`\nExample: `/addcombo 90 60 Morning Mix`', { parse_mode: 'Markdown' });
+    }
+    try {
+      await saveCombo(supabase, baby.id, ctx.from.id, name, formulaMl, breastMl);
+      return ctx.reply(`✅ *${name}* saved — ${formulaMl}ml formula + ${breastMl}ml breast.\n\nIt will appear as a quick-tap button in /log.`, { parse_mode: 'Markdown' });
+    } catch (e) {
+      return ctx.reply(`❌ ${e.message}`);
+    }
+  });
+
+  // ── /mycombos command (Pro) ───────────────────────────────────────────────────
+
+  bot.command('mycombos', async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return ctx.reply('Set up a baby profile first with /newbaby.');
+    const pro = await isPro(ctx.from.id);
+    if (!pro) return ctx.reply(proUpsellText('Feed combos'), { parse_mode: 'Markdown', ...proUpsellKeyboard() });
+    const combos = await getCombos(supabase, baby.id);
+    if (!combos.length) {
+      return ctx.reply('No combos saved yet.\n\nCreate one with:\n`/addcombo 90 60 Morning Mix`', { parse_mode: 'Markdown' });
+    }
+    const rows = combos.map((c, i) =>
+      `${i + 1}. *${c.name}* — ${c.formula_ml}ml formula + ${c.breast_ml}ml breast\n   _Delete: /deletecombo ${c.id}_`
+    );
+    return ctx.reply(`*${baby.name} — saved combos*\n\n${rows.join('\n\n')}`, { parse_mode: 'Markdown' });
+  });
+
+  // ── /deletecombo <id> (Pro) ───────────────────────────────────────────────────
+
+  bot.command('deletecombo', async (ctx) => {
+    const baby = await q.babyFor(ctx.from.id);
+    if (!baby) return;
+    const pro = await isPro(ctx.from.id);
+    if (!pro) return;
+    const id = parseInt(ctx.message.text.replace(/^\/deletecombo\s*/i, '').trim());
+    if (isNaN(id)) return ctx.reply('Usage: /deletecombo <id> — get IDs from /mycombos');
+    try {
+      await deleteCombo(supabase, id, baby.id);
+      return ctx.reply('✅ Combo deleted.');
+    } catch {
+      return ctx.reply('❌ Could not delete — check the ID with /mycombos.');
+    }
   });
 }
