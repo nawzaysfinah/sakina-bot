@@ -388,6 +388,22 @@ function feedTypeKeyboard(lastFeedDetail = null) {
   return Markup.inlineKeyboard(rows);
 }
 
+function feedTypeWithCombosKeyboard(lastFeedDetail = null, combos = []) {
+  const rows = [];
+  const label = feedRepeatLabel(lastFeedDetail);
+  if (label) rows.push([Markup.button.callback(`↩️ Same: ${label}`, 'tap:feed:repeat')]);
+  for (const c of combos) {
+    rows.push([Markup.button.callback(comboLabel(c), `tap:combo:${c.id}`)]);
+  }
+  rows.push([
+    Markup.button.callback('🤱 Latch',   'tap:feed:latch'),
+    Markup.button.callback('🍼 Breast',  'tap:feed:breast'),
+    Markup.button.callback('🍶 Formula', 'tap:feed:formula'),
+  ]);
+  rows.push([Markup.button.callback('⏭ Skip', 'tap:feed:skip')]);
+  return Markup.inlineKeyboard(rows);
+}
+
 function latchSideKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback('⬅️ Left',  'tap:feed:latch:L'),
@@ -856,22 +872,13 @@ export function registerTapLog(bot, { supabase, queries }) {
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
       activeLatch.delete(String(ctx.from.id));
 
-      // Pro users with saved combos get a quick-pick menu first
-      const [pro, combos] = await Promise.all([
-        isPro(ctx.from.id),
-        getCombos(supabase, baby.id),
-      ]);
-      if (pro && combos.length) {
-        const rows = combos.map(c => [Markup.button.callback(comboLabel(c), `tap:combo:${c.id}`)]);
-        rows.push([Markup.button.callback('🍼 Breast / Formula / Latch →', 'tap:feed')]);
-        await ctx.reply(
-          `*${baby.name} — log feed*\n\nTap a combo to log now, or choose a feed type:`,
-          { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) },
-        );
-        return;
-      }
-
       await stageWhenFromText(ctx, baby, 'feed');
+      // Pro users with combos: flag the pending action so the feed-type keyboard shows combos
+      const [pro, combos] = await Promise.all([isPro(ctx.from.id), getCombos(supabase, baby.id)]);
+      if (pro && combos.length) {
+        const existing = pendingAction.get(ctx.from.id);
+        if (existing) pendingAction.set(ctx.from.id, { ...existing, withCombos: true });
+      }
       return;
     }
 
@@ -1020,13 +1027,17 @@ export function registerTapLog(bot, { supabase, queries }) {
     if (pending.kind === 'feed') {
       // Store the time, then show feed type keyboard via the stored log message
       pendingRetro.set(ctx.from.id, { ...pending, ts, expiresAt: Date.now() + RETRO_TTL_MS });
-      const last = await lastFeedDetail(baby.id);
+      const [last, combos] = await Promise.all([
+        lastFeedDetail(baby.id),
+        pending.withCombos ? getCombos(supabase, baby.id) : Promise.resolve([]),
+      ]);
       if (last) pendingFeedRepeat.set(ctx.from.id, { detail: last, retroTs: ts });
       const st  = await q.status(baby.id);
       const now2 = new Date();
       const sl2  = isSgtNight(now2) ? nightStatusLine(st, now2, baby.birth_date) : statusLine(st, now2, baby.birth_date);
       const msg = `${baby.name} right now\n\n${sl2}\n\n_What type of feed? (${clock(ts)})_`;
-      await editLog(msg, feedTypeKeyboard(last));
+      const kb  = combos.length ? feedTypeWithCombosKeyboard(last, combos) : feedTypeKeyboard(last);
+      await editLog(msg, kb);
       return; // don't call next()
     }
 
@@ -1328,9 +1339,13 @@ export function registerTapLog(bot, { supabase, queries }) {
     let note;
     try {
       if (kind === 'feed') {
-        const last = await lastFeedDetail(baby.id);
+        const [last, combos] = await Promise.all([
+          lastFeedDetail(baby.id),
+          pa.withCombos ? getCombos(supabase, baby.id) : Promise.resolve([]),
+        ]);
         if (last) pendingFeedRepeat.set(ctx.from.id, { detail: last, retroTs: null });
-        await renderWithPrompt(ctx, baby, '_What type of feed?_', feedTypeKeyboard(last));
+        const kb = combos.length ? feedTypeWithCombosKeyboard(last, combos) : feedTypeKeyboard(last);
+        await renderWithPrompt(ctx, baby, '_What type of feed?_', kb);
         return;
       }
       if (kind === 'note') {
@@ -1761,7 +1776,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     const combo  = combos.find(c => c.id === comboId);
     if (!combo) { await ctx.answerCbQuery('Combo not found'); return; }
     await ctx.answerCbQuery(`${combo.name} logged ✓`);
-    const now = new Date();
+    const now = consumeRetroTime(ctx.from.id) ?? new Date();
     // Log formula and breast as separate events (bypass merge logic by using insertAt directly)
     const inserts = [];
     if (combo.formula_ml > 0) {
