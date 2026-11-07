@@ -6,6 +6,7 @@
 import { Markup } from 'telegraf';
 import { currentRowDateStr, hrs } from './format.js';
 import { sendMorningBriefs, ageDaysOf, defaultFocus } from './brief.js';
+import { isPro, proUpsellKeyboard } from '../billing.js';
 
 export async function sendScanReminders(bot, supabase, queries) {
   // The line that just finished is "today" in the notebook (7pm boundary).
@@ -51,6 +52,8 @@ export async function sendOvernightReport(bot, supabase, queries) {
 
   for (const c of caregivers) {
     try {
+      const pro = await isPro(c.telegram_user_id);
+
       // Feeds from tap with logged_by for shift attribution
       const { data: tapFeeds } = await supabase.from('baby_events')
         .select('start_at, detail, logged_by')
@@ -90,60 +93,69 @@ export async function sendOvernightReport(bot, supabase, queries) {
 
       const lines = [`🌙 *Overnight — ${dateLabel}*`];
 
-      // ── Sleep summary (estimated) ──────────────────────────────────────────
-      if (totalSleepMs > 0) {
-        lines.push('');
-        lines.push(`😴 Est. sleep: ${fmt(totalSleepMs)}`);
-        lines.push(`⏱ Longest stretch: ${fmt(longestSleepMs)}`);
-        lines.push(`🍼 Feeds: ${feeds.length} (${feedWakeUps} wake-up${feedWakeUps !== 1 ? 's' : ''})`);
-      } else if (feeds.length) {
-        lines.push('');
-        lines.push(`🍼 Feeds: ${feeds.length}`);
-      } else {
-        lines.push('', 'No feeds logged during the night.');
-      }
-
-      // ── Shift coverage ─────────────────────────────────────────────────────
-      if (feeds.length) {
-        const loggerIds = [...new Set(feeds.map(f => f.logged_by).filter(Boolean))];
-        let loggerNames = {};
-        if (loggerIds.length) {
-          const { data: users } = await supabase.from('users')
-            .select('id, name').in('id', loggerIds);
-          for (const u of users || []) {
-            loggerNames[u.id] = (u.name || '').split(' ')[0] || `User ${u.id}`;
-          }
-        }
-
-        const shiftCounts = {};
-        for (const f of feeds) {
-          if (!f.logged_by) continue;
-          const who = loggerNames[f.logged_by] ?? `User ${f.logged_by}`;
-          shiftCounts[who] = (shiftCounts[who] || 0) + 1;
-        }
-
-        if (Object.keys(shiftCounts).length > 1) {
+      if (pro) {
+        // ── Pro: full sleep estimate + attribution + feed list ───────────────
+        if (totalSleepMs > 0) {
           lines.push('');
-          lines.push('*Who was on:*');
-          for (const [name, count] of Object.entries(shiftCounts)) {
-            lines.push(`  ${name} — ${count} feed${count !== 1 ? 's' : ''}`);
-          }
+          lines.push(`😴 Est. sleep: ${fmt(totalSleepMs)}`);
+          lines.push(`⏱ Longest stretch: ${fmt(longestSleepMs)}`);
+          lines.push(`🍼 Feeds: ${feeds.length} (${feedWakeUps} wake-up${feedWakeUps !== 1 ? 's' : ''})`);
+        } else if (feeds.length) {
+          lines.push('');
+          lines.push(`🍼 Feeds: ${feeds.length}`);
+        } else {
+          lines.push('', 'No feeds logged during the night.');
         }
 
-        // ── Feed list with attribution ──────────────────────────────────────
-        lines.push('');
-        lines.push('*Night feeds:*');
-        for (const f of feeds) {
-          const t   = clockSgt(f.start_at);
-          const d   = f.detail;
-          const who = f.logged_by && loggerNames[f.logged_by] ? ` _(${loggerNames[f.logged_by]})_` : '';
-          let fl;
-          if (d?.type === 'formula')     fl = `🍶 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
-          else if (d?.type === 'breast') fl = `🍼 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
-          else if (d?.type === 'latch')  fl = `🤱 ${t}${d.duration_min ? ` · ${d.duration_min}m` : ''}`;
-          else                           fl = `🍼 ${t}`;
-          lines.push(fl + who);
+        if (feeds.length) {
+          const loggerIds = [...new Set(feeds.map(f => f.logged_by).filter(Boolean))];
+          let loggerNames = {};
+          if (loggerIds.length) {
+            const { data: users } = await supabase.from('users')
+              .select('id, name').in('id', loggerIds);
+            for (const u of users || []) {
+              loggerNames[u.id] = (u.name || '').split(' ')[0] || `User ${u.id}`;
+            }
+          }
+
+          const shiftCounts = {};
+          for (const f of feeds) {
+            if (!f.logged_by) continue;
+            const who = loggerNames[f.logged_by] ?? `User ${f.logged_by}`;
+            shiftCounts[who] = (shiftCounts[who] || 0) + 1;
+          }
+
+          if (Object.keys(shiftCounts).length > 1) {
+            lines.push('');
+            lines.push('*Who was on:*');
+            for (const [name, count] of Object.entries(shiftCounts)) {
+              lines.push(`  ${name} — ${count} feed${count !== 1 ? 's' : ''}`);
+            }
+          }
+
+          lines.push('');
+          lines.push('*Night feeds:*');
+          for (const f of feeds) {
+            const t   = clockSgt(f.start_at);
+            const d   = f.detail;
+            const who = f.logged_by && loggerNames[f.logged_by] ? ` _(${loggerNames[f.logged_by]})_` : '';
+            let fl;
+            if (d?.type === 'formula')     fl = `🍶 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
+            else if (d?.type === 'breast') fl = `🍼 ${t}${d.amount_ml ? ` · ${d.amount_ml}ml` : ''}`;
+            else if (d?.type === 'latch')  fl = `🤱 ${t}${d.duration_min ? ` · ${d.duration_min}m` : ''}`;
+            else                           fl = `🍼 ${t}`;
+            lines.push(fl + who);
+          }
         }
+      } else {
+        // ── Free: basic feed count + upsell ───────────────────────────────────
+        lines.push('');
+        if (feeds.length) {
+          lines.push(`🍼 ${feeds.length} feed${feeds.length !== 1 ? 's' : ''} during the night.`);
+        } else {
+          lines.push('No feeds logged during the night.');
+        }
+        lines.push('', '_Upgrade to Pro for sleep estimates, shift attribution, and a feed-by-feed breakdown._');
       }
 
       // ── Morning brief (merged) ─────────────────────────────────────────────
@@ -175,7 +187,9 @@ export async function sendOvernightReport(bot, supabase, queries) {
       if (focus) lines.push('', `Today: ${focus}`);
       if (c.role === 'father') lines.push('', 'Check in on mum: water, food, a proper rest if she can.');
 
-      await bot.telegram.sendMessage(c.telegram_user_id, lines.join('\n'), { parse_mode: 'Markdown' });
+      const msgOpts = { parse_mode: 'Markdown' };
+      if (!pro) Object.assign(msgOpts, proUpsellKeyboard());
+      await bot.telegram.sendMessage(c.telegram_user_id, lines.join('\n'), msgOpts);
     } catch (e) {
       console.error('overnight report failed for', c.telegram_user_id, e.description || e.message);
     }

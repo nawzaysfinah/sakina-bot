@@ -19,6 +19,7 @@ import {
 import { initScheduler } from './scheduler.js';
 import { supabase } from './db.js';
 import { registerBabyLog } from './babyLog/index.js';
+import { sendProInvoice, handlePreCheckout, handleSuccessfulPayment } from './billing.js';
 import http from 'http';
 
 // ── Bot setup ──────────────────────────────────────────────────────────────────
@@ -58,6 +59,7 @@ bot.command('undo',      ctx => handleUndo(ctx));
 // /log is registered by babyLog's registerTapLog (tap.js)
 bot.command('share',     ctx => handleShare(ctx));
 bot.command('view',      ctx => handleView(ctx));
+bot.command('pro',       ctx => sendProInvoice(ctx));
 bot.command('help',      ctx => handleMessage(ctx));
 
 // ── Text messages ──────────────────────────────────────────────────────────────
@@ -67,6 +69,11 @@ bot.on(message('text'), ctx => handleMessage(ctx));
 // ── Inline button callbacks ────────────────────────────────────────────────────
 
 bot.on('callback_query', ctx => handleCallback(ctx));
+
+// ── Payments — Telegram Stars ──────────────────────────────────────────────────
+
+bot.on('pre_checkout_query', ctx => handlePreCheckout(ctx));
+bot.on(message('successful_payment'), ctx => handleSuccessfulPayment(ctx));
 
 // ── Start bot ──────────────────────────────────────────────────────────────────
 
@@ -86,6 +93,7 @@ async function start() {
     { command: 'urgent',    description: '🚨 Emergency danger signs & contacts' },
     { command: 'undo',      description: '↩️ Unmark last logged task' },
     { command: 'share',     description: '🔗 Share your journal with partner/doula' },
+    { command: 'pro',       description: '⭐ Upgrade to Pro (feed predictions + overnight report)' },
     { command: 'about',     description: 'ℹ️ What is Sakina?' },
     { command: 'reset',     description: '⚠️ Reset your profile and start fresh' },
     { command: 'start',     description: '▶️ Restart onboarding' },
