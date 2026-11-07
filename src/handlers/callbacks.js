@@ -13,11 +13,18 @@ import { formatDailyBriefing, getTumbuhContent, getNextWeekId } from '../service
 import { handleModeCallback, handleDeliveryTypeCallback, handleBabyRoleCallback } from './onboarding.js';
 import { sendDailyBriefing, handleEpdsAnswer } from './message.js';
 import { handleResetConfirm, handleTip } from './commands.js';
+import { sendProInvoice } from '../billing.js';
 import { Markup } from 'telegraf';
 
 export async function handleCallback(ctx) {
   const data   = ctx.callbackQuery.data;
   const userId = ctx.from.id;
+
+  // ── Billing ────────────────────────────────────────────────────────────────
+  if (data === 'billing_pro') {
+    await ctx.answerCbQuery();
+    return sendProInvoice(ctx);
+  }
 
   // ── Mode switch ────────────────────────────────────────────────────────────
   if (data.startsWith('mode_')) {

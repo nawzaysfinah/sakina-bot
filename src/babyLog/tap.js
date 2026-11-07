@@ -7,6 +7,7 @@ import { Markup } from 'telegraf';
 import { clock, span, statusLine, nightStatusLine, currentRowDateStr, addDays, dayLabel, hrs } from './format.js';
 import { setFeedReminder, clearFeedReminder, getFeedReminder, setAutoFeedReminders, clearAutoFeedReminders } from './feedReminder.js';
 import { fetchFeedWindow, feedVolumeGuidance } from './feedWindow.js';
+import { isPro, proUpsellText, proUpsellKeyboard } from '../billing.js';
 
 const UNDO_MINUTES  = 30;
 const RETRO_TTL_MS  = 3 * 60 * 1000;  // 3 min to tap/type a structured value before pending expires
@@ -322,8 +323,8 @@ function periodNavKeyboard() {
 
 // ── Keyboards ─────────────────────────────────────────────────────────────────
 
-function keyboard() {
-  return Markup.inlineKeyboard([
+function keyboard(pro = true) {
+  const rows = [
     [Markup.button.callback('🍼 Feed', 'tap:feed'), Markup.button.callback('😴 Asleep', 'tap:sleep')],
     [Markup.button.callback('💧 Wet', 'tap:wet'), Markup.button.callback('💩 Dirty', 'tap:dirty'),
       Markup.button.callback('💧💩 Both', 'tap:both')],
@@ -331,7 +332,9 @@ function keyboard() {
       Markup.button.callback('📋 Today', 'tap:history')],
     [Markup.button.callback('↩️ Undo last', 'tap:undo'), Markup.button.callback('⏰', 'tap:remind'),
       Markup.button.callback('🔄', 'tap:refresh')],
-  ]);
+  ];
+  if (!pro) rows.push([Markup.button.callback('⭐ Upgrade to Pro — unlock 🔮 predictions', 'billing_pro')]);
+  return Markup.inlineKeyboard(rows);
 }
 
 function remindKeyboard() {
@@ -452,12 +455,14 @@ export function registerTapLog(bot, { supabase, queries }) {
   }
 
   async function render(ctx, baby, note) {
-    const [st, names] = await Promise.all([
+    const [st, names, pro] = await Promise.all([
       q.status(baby.id),
       caregiverNames(baby.id, ctx.from.id),
+      isPro(ctx.from.id),
     ]);
     const now = new Date();
-    const fw  = st?.last_feed
+    // 🔮 Bayesian feed prediction is a Pro feature; free users get the +3h fallback
+    const fw  = (st?.last_feed && pro)
       ? await fetchFeedWindow(baby.id, st.last_feed.detail, new Date(st.last_feed.start_at), supabase, baby.birth_date)
       : null;
     const timer = latchTimerLine(ctx.from.id, now);
@@ -467,7 +472,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     const status = timer ? `${timer}\n${sl}` : sl;
     const text  = `${baby.name} · ${clock(now)}\n\n${status}${note ? `\n\n✓ ${note}` : ''}`;
     const lSide = activeLatch.get(String(ctx.from.id))?.side;
-    const kb    = timer ? latchTimerKeyboard(lSide === 'left' ? 'L' : lSide === 'right' ? 'R' : lSide === 'both' ? 'B' : null) : keyboard();
+    const kb    = timer ? latchTimerKeyboard(lSide === 'left' ? 'L' : lSide === 'right' ? 'R' : lSide === 'both' ? 'B' : null) : keyboard(pro);
     return { text, kb };
   }
 
