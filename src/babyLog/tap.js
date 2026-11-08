@@ -854,7 +854,8 @@ export function registerTapLog(bot, { supabase, queries }) {
     const newQuickKb = Markup.keyboard([
       ['🍼 Feed',  '😴 Sleep', '📝 Note'],
       ['💧 Wet',   '💩 Dirty', '💧💩 Both'],
-      ['📊 Logs'],
+      ['🤽 Pump',  '💊 PD',    '📋 Today'],
+      ['↩️ Undo'],
     ]).resize().persistent();
 
     if (text === '📋 Log' || text === '📊 Dashboard') {
@@ -930,6 +931,87 @@ export function registerTapLog(bot, { supabase, queries }) {
       const sent = await ctx.reply(dashText, { parse_mode: 'Markdown', ...kb });
       await storeDashMsg(ctx.from.id, ctx.chat.id, sent.message_id);
       return;
+    }
+
+    if (text === '🤽 Pump') {
+      const baby = await q.babyFor(ctx.from.id);
+      if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+      const pro = await isPro(ctx.from.id);
+      if (!pro) return ctx.reply(proUpsellText('Pump timer & reminders'), { parse_mode: 'Markdown', ...proUpsellKeyboard() });
+      const existing = getPumpReminder(ctx.from.id);
+      const reminderLine = existing ? `\n\n_Next pump reminder: ${clock(existing.remindAt)}_` : '';
+      const pumpKb = Markup.inlineKeyboard([
+        [Markup.button.callback('⚡ Now', 'tap:pump:now'),
+         Markup.button.callback('✏️ Enter amount', 'tap:pump:amount')],
+        [Markup.button.callback('⏰ Change interval', 'tap:pump:interval'),
+         Markup.button.callback('❌ Cancel', 'tap:back')],
+      ]);
+      const [st, names] = await Promise.all([q.status(baby.id), caregiverNames(baby.id, ctx.from.id)]);
+      const pumpNow = new Date();
+      const sl = isSgtNight(pumpNow) ? nightStatusLine(st, pumpNow, baby.birth_date) : statusLine(st, pumpNow, baby.birth_date, names);
+      const pumpMsgText = `${baby.name} · ${clock(pumpNow)}\n\n${sl}\n\n🤽 *Log pump*${reminderLine}\n\nTap *Now* to log immediately, or *Enter amount* to record ml pumped.`;
+      const pumpSent = await ctx.reply(pumpMsgText, { parse_mode: 'Markdown', ...pumpKb });
+      await storeLogMsg(ctx.from.id, ctx.chat.id, pumpSent.message_id);
+      return;
+    }
+
+    if (text === '💊 PD') {
+      const baby = await q.babyFor(ctx.from.id);
+      if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+      const { text: pdText, kb: pdKb } = await renderPdView(baby);
+      const pdSent = await ctx.reply(pdText, { parse_mode: 'Markdown', ...pdKb });
+      await storeLogMsg(ctx.from.id, ctx.chat.id, pdSent.message_id);
+      return;
+    }
+
+    if (text === '📋 Today') {
+      const baby = await q.babyFor(ctx.from.id);
+      if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+      const today = currentSgtDate();
+      const { start, end } = dayBoundsUtc(today);
+      const [{ data: events }, tz] = await Promise.all([
+        supabase.from('baby_events_effective')
+          .select('kind, start_at, end_at, detail, source')
+          .eq('baby_id', baby.id).gte('start_at', start).lt('start_at', end)
+          .order('start_at', { ascending: true }),
+        getUserTz(ctx.from.id),
+      ]);
+      const histText = formatTodayEvents(events, baby.name, today, new Date(), tz, null, null, baby.birth_date);
+      const histSent = await ctx.reply(histText, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('← Back', 'tap:back')]]),
+      });
+      await storeLogMsg(ctx.from.id, ctx.chat.id, histSent.message_id);
+      return;
+    }
+
+    if (text === '↩️ Undo') {
+      const baby = await q.babyFor(ctx.from.id);
+      if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
+      pendingRetro.delete(ctx.from.id);
+      pendingAction.delete(ctx.from.id);
+      const since = new Date(Date.now() - UNDO_MINUTES * 60e3).toISOString();
+      const [{ data: made }, { data: woke }] = await Promise.all([
+        supabase.from('baby_events').select('*').eq('baby_id', baby.id).eq('source', 'tap')
+          .eq('logged_by', ctx.from.id).neq('kind', 'pd_question').gte('created_at', since)
+          .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1).maybeSingle(),
+        supabase.from('baby_events').select('*').eq('baby_id', baby.id).eq('source', 'tap')
+          .eq('kind', 'sleep').eq('detail->>ended_by', String(ctx.from.id)).gte('end_at', since)
+          .order('end_at', { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      const wakeIsLater = woke && (!made || new Date(woke.end_at) >= new Date(made.created_at));
+      let undoNote;
+      if (wakeIsLater) {
+        const { ended_by, ...rest } = woke.detail || {};
+        await supabase.from('baby_events').update({ end_at: null, detail: rest }).eq('id', woke.id);
+        undoNote = 'Undone: back to asleep';
+      } else if (!made) {
+        undoNote = `Nothing to undo from the last ${UNDO_MINUTES} minutes.`;
+      } else {
+        await supabase.from('baby_events').delete().eq('id', made.id);
+        undoNote = `Undone: ${made.kind} at ${clock(made.start_at)}`;
+      }
+      return ctx.reply(undoNote);
     }
 
     // ── Note text input ───────────────────────────────────────────────────────
