@@ -103,6 +103,7 @@ async function start() {
     { command: 'addcombo',   description: '🍶🍼 Pro: save a formula+breast combo — /addcombo 90 60 Name' },
     { command: 'mycombos',   description: '🍶🍼 Pro: view & manage saved combos' },
     { command: 'redeem',     description: '🎁 Redeem a Pro gift code' },
+    { command: 'kb',         description: '⌨️ Refresh the bottom keyboard' },
     { command: 'feedback',   description: '📝 Send feedback or a feature request' },
     { command: 'about',     description: 'ℹ️ What is Sakina?' },
     { command: 'reset',     description: '⚠️ Reset your profile and start fresh' },

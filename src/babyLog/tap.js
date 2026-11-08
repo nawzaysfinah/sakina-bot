@@ -11,6 +11,13 @@ import { isPro, proUpsellText, proUpsellKeyboard } from '../billing.js';
 import { getCombos, saveCombo, deleteCombo, comboLabel } from './combos.js';
 
 const UNDO_MINUTES  = 30;
+
+export const QUICK_KB = Markup.keyboard([
+  ['🍼 Feed',  '😴 Sleep', '📝 Note'],
+  ['💧 Wet',   '💩 Dirty', '💧💩 Both'],
+  ['🤽 Pump',  '💊 PD',    '📋 Today'],
+  ['↩️ Undo'],
+]).resize().persistent();
 const RETRO_TTL_MS  = 3 * 60 * 1000;  // 3 min to tap/type a structured value before pending expires
 const NOTE_TTL_MS   = 15 * 60 * 1000; // 15 min for free-text note/question input (parents get interrupted)
 
@@ -639,6 +646,9 @@ export function registerTapLog(bot, { supabase, queries }) {
   bot.command('log', async (ctx) => {
     const baby = await q.babyFor(ctx.from.id);
     if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD (or /joinbaby CODE).');
+    // Push the persistent keyboard before the dashboard so it always stays in sync
+    const kbMsg = await ctx.reply('🌿', QUICK_KB);
+    ctx.telegram.deleteMessage(ctx.chat.id, kbMsg.message_id).catch(() => {});
     const { text, kb } = await render(ctx, baby);
     const stored = await getStoredLogMsg(ctx.from.id);
     if (stored && stored.chat_id === ctx.chat.id) {
@@ -646,6 +656,10 @@ export function registerTapLog(bot, { supabase, queries }) {
     }
     const sent = await ctx.reply(text, kb);
     await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
+  });
+
+  bot.command('kb', async (ctx) => {
+    await ctx.reply('Keyboard updated ✓', QUICK_KB);
   });
 
   // ── /logs — day view + navigation ─────────────────────────────────────────────
@@ -851,12 +865,7 @@ export function registerTapLog(bot, { supabase, queries }) {
 
     // Backwards-compat: old keyboard showed [📋 Log | 📊 Dashboard].
     // Handle them and push the new keyboard so Telegram upgrades it.
-    const newQuickKb = Markup.keyboard([
-      ['🍼 Feed',  '😴 Sleep', '📝 Note'],
-      ['💧 Wet',   '💩 Dirty', '💧💩 Both'],
-      ['🤽 Pump',  '💊 PD',    '📋 Today'],
-      ['↩️ Undo'],
-    ]).resize().persistent();
+    const newQuickKb = QUICK_KB;
 
     if (text === '📋 Log' || text === '📊 Dashboard') {
       const baby = await q.babyFor(ctx.from.id);
