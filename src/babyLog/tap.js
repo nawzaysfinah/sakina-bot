@@ -882,9 +882,10 @@ export function registerTapLog(bot, { supabase, queries }) {
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
       activeLatch.delete(String(ctx.from.id));
 
-      await stageWhenFromText(ctx, baby, 'feed');
-      // Pro users with combos: flag the pending action so the feed-type keyboard shows combos
+      // Fetch Pro + combos BEFORE staging so we can patch pendingAction synchronously
+      // after stageWhenFromText sets it — eliminates the race with a quick "Now" tap
       const [pro, combos] = await Promise.all([isPro(ctx.from.id), getCombos(supabase, baby.id)]);
+      await stageWhenFromText(ctx, baby, 'feed');
       if (pro && combos.length) {
         const existing = pendingAction.get(ctx.from.id);
         if (existing) pendingAction.set(ctx.from.id, { ...existing, withCombos: true });
