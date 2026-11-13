@@ -15,7 +15,7 @@ const UNDO_MINUTES  = 30;
 export const QUICK_KB = Markup.keyboard([
   ['🍼 Feed',  '😴 Sleep', '📝 Note'],
   ['💧 Wet',   '💩 Dirty', '💧💩 Both'],
-  ['🤽 Pump',  '💊 PD',    '📋 Today'],
+  ['🤽 Pump',  '💊 PD',    '📊 Dashboard'],
   ['↩️ Undo'],
 ]).resize().persistent();
 const RETRO_TTL_MS  = 3 * 60 * 1000;  // 3 min to tap/type a structured value before pending expires
@@ -333,7 +333,7 @@ function periodNavKeyboard() {
 
 function keyboard(pro = true, combos = []) {
   const rows = [
-    [Markup.button.callback('🍼 Feed', 'tap:feed'), Markup.button.callback('😴 Asleep', 'tap:sleep')],
+    [Markup.button.callback('🍼 Feed', 'tap:feed'), Markup.button.callback('😴 Sleep', 'tap:sleep')],
     [Markup.button.callback('💧 Wet', 'tap:wet'), Markup.button.callback('💩 Dirty', 'tap:dirty'),
       Markup.button.callback('💧💩 Both', 'tap:both')],
     [Markup.button.callback('📝 Note', 'tap:note'), Markup.button.callback('🤽 Pump', 'tap:pump'),
@@ -341,12 +341,6 @@ function keyboard(pro = true, combos = []) {
     [Markup.button.callback('↩️ Undo last', 'tap:undo'), Markup.button.callback('⏰', 'tap:remind'),
       Markup.button.callback('🔄', 'tap:refresh')],
   ];
-  // Pro: show saved combos as quick-tap rows
-  if (pro && combos.length) {
-    for (const c of combos) {
-      rows.splice(1, 0, [Markup.button.callback(comboLabel(c), `tap:combo:${c.id}`)]);
-    }
-  }
   if (!pro) rows.push([Markup.button.callback('⭐ Upgrade to Pro — unlock 🔮 predictions', 'billing_pro')]);
   return Markup.inlineKeyboard(rows);
 }
@@ -867,7 +861,7 @@ export function registerTapLog(bot, { supabase, queries }) {
     // Handle them and push the new keyboard so Telegram upgrades it.
     const newQuickKb = QUICK_KB;
 
-    if (text === '📋 Log' || text === '📊 Dashboard') {
+    if (text === '📋 Log') {
       const baby = await q.babyFor(ctx.from.id);
       const label = baby ? baby.name : 'your baby';
       await ctx.reply(
@@ -974,24 +968,16 @@ export function registerTapLog(bot, { supabase, queries }) {
       return;
     }
 
-    if (text === '📋 Today') {
+    if (text === '📊 Dashboard') {
       const baby = await q.babyFor(ctx.from.id);
       if (!baby) return ctx.reply('Set up a profile first with /newbaby Name YYYY-MM-DD.');
-      const today = currentSgtDate();
-      const { start, end } = dayBoundsUtc(today);
-      const [{ data: events }, tz] = await Promise.all([
-        supabase.from('baby_events_effective')
-          .select('kind, start_at, end_at, detail, source')
-          .eq('baby_id', baby.id).gte('start_at', start).lt('start_at', end)
-          .order('start_at', { ascending: true }),
-        getUserTz(ctx.from.id),
-      ]);
-      const histText = formatTodayEvents(events, baby.name, today, new Date(), tz, null, null, baby.birth_date);
-      const histSent = await ctx.reply(histText, {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('← Back', 'tap:back')]]),
-      });
-      await storeLogMsg(ctx.from.id, ctx.chat.id, histSent.message_id);
+      const { text: dashText, kb } = await render(ctx, baby);
+      const stored = await getStoredLogMsg(ctx.from.id);
+      if (stored && stored.chat_id === ctx.chat.id) {
+        ctx.telegram.deleteMessage(stored.chat_id, stored.message_id).catch(() => {});
+      }
+      const sent = await ctx.reply(dashText, kb);
+      await storeLogMsg(ctx.from.id, ctx.chat.id, sent.message_id);
       return;
     }
 
@@ -1227,7 +1213,17 @@ export function registerTapLog(bot, { supabase, queries }) {
   }
 
   const actions = {
-    async feed(ctx, baby)  { await ctx.answerCbQuery(); activeLatch.delete(String(ctx.from.id)); await stageWhen(ctx, baby, 'feed');  return null; },
+    async feed(ctx, baby) {
+      await ctx.answerCbQuery();
+      activeLatch.delete(String(ctx.from.id));
+      const [pro, combos] = await Promise.all([isPro(ctx.from.id), getCombos(supabase, baby.id)]);
+      await stageWhen(ctx, baby, 'feed');
+      if (pro && combos.length) {
+        const existing = pendingAction.get(ctx.from.id);
+        if (existing) pendingAction.set(ctx.from.id, { ...existing, withCombos: true });
+      }
+      return null;
+    },
     async sleep(ctx, baby) { await ctx.answerCbQuery(); await stageWhen(ctx, baby, 'sleep'); return null; },
     async remind(ctx, baby) {
       await ctx.answerCbQuery();
