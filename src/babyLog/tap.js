@@ -1268,8 +1268,9 @@ export function registerTapLog(bot, { supabase, queries }) {
       return `Undone: ${made.kind} at ${clock(made.start_at)}`;
     },
     async history(ctx, baby) {
-      const today         = currentSgtDate();
+      const today          = currentSgtDate();
       const { start, end } = dayBoundsUtc(today);
+      const now            = new Date();
       const [{ data: events }, tz] = await Promise.all([
         supabase.from('baby_events_effective')
           .select('kind, start_at, end_at, detail, source')
@@ -1279,13 +1280,15 @@ export function registerTapLog(bot, { supabase, queries }) {
           .order('start_at', { ascending: true }),
         getUserTz(ctx.from.id),
       ]);
+      let fw = null;
+      if (events?.length) {
+        const lastFeed = [...events].reverse().find(e => e.kind === 'feed');
+        if (lastFeed) fw = await fetchFeedWindow(baby.id, lastFeed.detail, new Date(lastFeed.start_at), supabase, baby.birth_date).catch(() => null);
+      }
       await ctx.answerCbQuery();
-      const text = formatTodayEvents(events, baby.name, today, new Date(), tz, null, null, baby.birth_date);
+      const text = formatTodayEvents(events, baby.name, today, now, tz, fw, null, baby.birth_date);
       try {
-        await ctx.editMessageText(text, {
-          parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([[Markup.button.callback('← Back', 'tap:back')]]),
-        });
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...logsNavKeyboard(today) });
       } catch (e) {
         if (!/message is not modified/.test(e.description || e.message)) throw e;
       }
