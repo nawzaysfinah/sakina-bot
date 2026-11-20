@@ -157,16 +157,18 @@ function daySummary(events, now, birthDate = null) {
   const wet   = diapers.filter(e => e.detail?.wet).length;
   const dirty = diapers.filter(e => e.detail?.dirty).length;
 
+  const totalMl = formulaMl + breastMl;
+
   const lines = [];
   if (feedCount) {
     lines.push(`🍼 ${feedCount} feed${feedCount !== 1 ? 's' : ''}`);
-    if (formulaMl && breastMl) lines.push(`🍶${formulaMl}ml 🍼${breastMl}ml`);
-    else if (formulaMl) lines.push(`🍶${formulaMl}ml`);
+    if (formulaMl && breastMl) {
+      lines.push(`💧 ${totalMl}ml total`);
+      lines.push(`🍶${formulaMl}ml  🍼${breastMl}ml`);
+    } else if (formulaMl) lines.push(`🍶${formulaMl}ml`);
     else if (breastMl)  lines.push(`🍼${breastMl}ml`);
     if (latchMin) lines.push(`🤱 ${span(latchMin * 60000)} latch`);
   }
-
-  const totalMl = formulaMl + breastMl;
   if (birthDate && totalMl) {
     const g = feedVolumeGuidance(birthDate, now);
     if (g) {
@@ -257,24 +259,42 @@ function formatPeriodSummary(rows, babyName, days) {
   if (!rows?.length) return `*${babyName} — last ${days} days*\n\nNo data yet.`;
   const today = currentRowDateStr();
 
-  let totalSleep = 0, totalFeeds = 0, totalWet = 0, totalDirty = 0, dataCount = 0;
+  let totalSleep = 0, totalFeeds = 0, totalWet = 0, totalDirty = 0;
+  let totalMlAcc = 0, totalLatchAcc = 0;
+  let dataCount = 0, mlDays = 0, latchDays = 0;
+
   const lines = rows.map(r => {
     const isToday = r.row_date === today;
     const label   = `\`${dayLabel(r.row_date)}\``;
     if (r.source === 'none' && !isToday) return `${label}  —`;
     if (isToday) return `${label}  _(today)_`;
-    const sleep = r.sleep_min ? `😴 ${hrs(r.sleep_min)}` : '';
-    const feeds = r.feeds != null ? `🍼 ${r.feeds}` : '';
-    const wet   = r.wet   != null ? `💧${r.wet}` : '';
-    const dirty = r.dirty != null ? `💩${r.dirty}` : '';
-    const parts = [sleep, feeds, wet, dirty].filter(Boolean);
-    if (r.source !== 'none') { totalSleep += r.sleep_min || 0; totalFeeds += r.feeds || 0; totalWet += r.wet || 0; totalDirty += r.dirty || 0; dataCount++; }
+
+    const sleep   = r.sleep_min ? `😴 ${hrs(r.sleep_min)}` : '';
+    const feeds   = r.feeds != null ? `🍼 ${r.feeds}` : '';
+    const dayMl   = (r.formula_ml || 0) + (r.breast_ml || 0);
+    const ml      = dayMl > 0 ? `🍼 ${dayMl}ml` : '';
+    const latch   = r.latch_min > 0 ? `🤱 ${r.latch_min}m` : '';
+    const wet     = r.wet   != null ? `💧${r.wet}` : '';
+    const dirty   = r.dirty != null ? `💩${r.dirty}` : '';
+    const parts   = [sleep, feeds, ml, latch, wet, dirty].filter(Boolean);
+
+    if (r.source !== 'none') {
+      totalSleep += r.sleep_min || 0;
+      totalFeeds += r.feeds || 0;
+      totalWet   += r.wet   || 0;
+      totalDirty += r.dirty || 0;
+      dataCount++;
+      if (dayMl > 0)        { totalMlAcc    += dayMl;        mlDays++;    }
+      if (r.latch_min > 0)  { totalLatchAcc += r.latch_min;  latchDays++; }
+    }
     return `${label}  ${parts.join('  ')}`;
   });
 
-  const avgLine = dataCount > 0
-    ? `\nAvg: 😴 ${hrs(Math.round(totalSleep / dataCount))}  🍼 ${(totalFeeds / dataCount).toFixed(1)}  💧${(totalWet / dataCount).toFixed(1)}  💩${(totalDirty / dataCount).toFixed(1)}`
-    : '';
+  if (dataCount === 0) return `*${babyName} — last ${days} days*\n\n${lines.join('\n')}`;
+
+  const avgMl    = mlDays    > 0 ? `  🍼 ${Math.round(totalMlAcc / dataCount)}ml` : '';
+  const avgLatch = latchDays > 0 ? `  🤱 ${Math.round(totalLatchAcc / dataCount)}m` : '';
+  const avgLine  = `\nAvg: 😴 ${hrs(Math.round(totalSleep / dataCount))}  🍼 ${(totalFeeds / dataCount).toFixed(1)}${avgMl}${avgLatch}  💧${(totalWet / dataCount).toFixed(1)}  💩${(totalDirty / dataCount).toFixed(1)}`;
 
   return `*${babyName} — last ${days} days*\n\n${lines.join('\n')}${avgLine}`;
 }
