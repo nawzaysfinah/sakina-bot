@@ -847,18 +847,30 @@ export function registerTapLog(bot, { supabase, queries }) {
   bot.action(/^rec:sleep:(\d+):(\d+)$/, async (ctx) => {
     const baby = await q.babyFor(ctx.from.id);
     if (!baby) return ctx.answerCbQuery('Set up a profile first');
-    const startMs = Number(ctx.match[1]) * 1000;
-    const endMs   = Number(ctx.match[2]) * 1000;
+    const startMs  = Number(ctx.match[1]) * 1000;
+    const endMs    = Number(ctx.match[2]) * 1000;
+    const startIso = new Date(startMs).toISOString();
+    const endIso   = new Date(endMs).toISOString();
+    const fmt      = (ms) => new Date(ms).toLocaleString('en-SG', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore' }).toLowerCase().replace(/ /g, '');
+    const gapMin   = Math.round((endMs - startMs) / 60000);
+    const h = Math.floor(gapMin / 60), m = gapMin % 60;
+    const durStr   = h > 0 ? `${h}h ${m}m` : `${m}m`;
+
+    // Guard against double-entry: another caregiver may have already tapped this.
+    const { data: existing } = await supabase.from('baby_events')
+      .select('id').eq('baby_id', baby.id).eq('kind', 'sleep')
+      .eq('source', 'tap').eq('start_at', startIso).maybeSingle();
+    if (existing) {
+      await ctx.answerCbQuery('Already logged ✓');
+      await ctx.editMessageText(`😴 Already logged: ${fmt(startMs)} – ${fmt(endMs)} (${durStr}) ✅`, { parse_mode: 'Markdown' }).catch(() => {});
+      return;
+    }
+
     const { error } = await supabase.from('baby_events').insert({
       baby_id: baby.id, source: 'tap', logged_by: ctx.from.id,
-      kind: 'sleep', start_at: new Date(startMs).toISOString(),
-      end_at: new Date(endMs).toISOString(), precision_min: 5,
+      kind: 'sleep', start_at: startIso, end_at: endIso, precision_min: 5,
     });
     if (error) return ctx.answerCbQuery('Could not save — try again');
-    const gapMin = Math.round((endMs - startMs) / 60000);
-    const h = Math.floor(gapMin / 60), m = gapMin % 60;
-    const durStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
-    const fmt = (ms) => new Date(ms).toLocaleString('en-SG', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore' }).toLowerCase().replace(/ /g, '');
     await ctx.answerCbQuery('Sleep logged ✓');
     await ctx.editMessageText(`😴 Sleep logged: ${fmt(startMs)} – ${fmt(endMs)} (${durStr}) ✅`, { parse_mode: 'Markdown' });
   });
